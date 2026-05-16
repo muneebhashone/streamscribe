@@ -177,6 +177,12 @@ This repo ships an agent skill at:
 skills/mic-and-audio-capture/SKILL.md
 ```
 
+Install the skill through the [skills.sh](https://www.skills.sh/) CLI:
+
+```bash
+npx skills add muneebhashone/mic-and-audio-capture
+```
+
 The skill is advertised in `skills.json` for skills.sh-style registries. Agents can use it to install the CLI, discover devices, configure VB-CABLE routing, and operate live transcription or recording safely.
 
 If your agent supports installing skills from a GitHub repository, point it at this repo or at the skill path above.

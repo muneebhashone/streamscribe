@@ -56,4 +56,11 @@ describe('agent skill distribution', () => {
     expect(manifest.skills[0].agents).toContain('claude');
     expect(manifest.skills[0].agents).toContain('codex');
   });
+
+  test('README documents the skills.sh install command', () => {
+    const readme = readText('README.md');
+
+    expect(readme).toContain('https://www.skills.sh/');
+    expect(readme).toContain('npx skills add muneebhashone/mic-and-audio-capture');
+  });
 });
