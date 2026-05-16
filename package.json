@@ -1,6 +1,6 @@
 {
   "name": "@muneebhashone/streamscribe",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Bun + TypeScript CLI for Deepgram live STT and stereo recording from separate Chrome/system and microphone audio sources.",
   "type": "module",
   "bin": {
