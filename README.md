@@ -1,4 +1,4 @@
-# Mic and Audio Capture
+# StreamScribe
 
 Bun + TypeScript CLI for Windows audio workflows where Chrome/system playback and microphone audio need to stay separate.
 
@@ -14,29 +14,29 @@ It can:
 macOS/Linux/Git Bash/WSL shell:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.sh | sh
 ```
 
 Windows PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps1 | iex
 ```
 
 Direct Bun install:
 
 ```bash
-bun install -g git+https://github.com/muneebhashone/mic-and-audio-capture.git
+bun install -g git+https://github.com/muneebhashone/streamscribe.git
 ```
 
 Installed commands:
 
 ```bash
-mic-audio-capture help
-mic-audio-capture init-config
-mic-audio-capture devices
-mic-audio-capture live
-mic-audio-capture record
+streamscribe help
+streamscribe init-config
+streamscribe devices
+streamscribe live
+streamscribe record
 ```
 
 `chrome-mic-stt` and `audio-recorder` are aliases for the same CLI.
@@ -68,13 +68,13 @@ export DEEPGRAM_API_KEY="your_deepgram_key_here"
 Create a user config:
 
 ```bash
-mic-audio-capture init-config
+streamscribe init-config
 ```
 
 List available devices:
 
 ```bash
-mic-audio-capture devices
+streamscribe devices
 ```
 
 Edit the generated config and set:
@@ -85,7 +85,7 @@ Edit the generated config and set:
 Start live Deepgram STT text output for both channels:
 
 ```bash
-mic-audio-capture live
+streamscribe live
 ```
 
 Live mode prints transcripts to the terminal as `[time] [browser] text` and `[time] [microphone] text`. Deepgram TTS is not used. Press `q`, `Enter`, or `Ctrl+C` to stop.
@@ -93,7 +93,7 @@ Live mode prints transcripts to the terminal as `[time] [browser] text` and `[ti
 Recording mode:
 
 ```bash
-mic-audio-capture record
+streamscribe record
 ```
 
 Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` with Chrome/system playback on the left channel and microphone on the right channel.
@@ -102,11 +102,12 @@ Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` with Ch
 
 The CLI reads config in this order:
 
-1. `MIC_AUDIO_CAPTURE_CONFIG`
-2. `AUDIO_RECORDER_CONFIG`
-3. `recorder.config.json` in the current working directory
-4. user config at `~/.config/mic-and-audio-capture/recorder.config.json` or Windows equivalent
-5. package `recorder.config.example.json`
+1. `STREAMSCRIBE_CONFIG`
+2. `MIC_AUDIO_CAPTURE_CONFIG` (legacy)
+3. `AUDIO_RECORDER_CONFIG` (legacy)
+4. `recorder.config.json` in the current working directory
+5. user config at `~/.config/streamscribe/recorder.config.json` or Windows equivalent
+6. package `recorder.config.example.json`
 
 Example config ships as `recorder.config.example.json`.
 
@@ -174,13 +175,13 @@ Do not set the whole Windows default playback device to VB-CABLE unless you inte
 This repo ships an agent skill at:
 
 ```text
-skills/mic-and-audio-capture/SKILL.md
+skills/streamscribe/SKILL.md
 ```
 
 Install the skill through the [skills.sh](https://www.skills.sh/) CLI:
 
 ```bash
-npx skills add muneebhashone/mic-and-audio-capture
+npx skills add muneebhashone/streamscribe
 ```
 
 The skill is advertised in `skills.json` for skills.sh-style registries. Agents can use it to install the CLI, discover devices, configure VB-CABLE routing, and operate live transcription or recording safely.
@@ -205,15 +206,15 @@ Project layout:
 - `src/lib.ts` - typed configuration, FFmpeg args, Deepgram websocket, recorder/live logic
 - `tests/lib.test.ts` - unit tests for pure behavior
 - `tests/distribution.test.ts` - package, installer, and skill distribution tests
-- `skills/mic-and-audio-capture/SKILL.md` - agent skill
+- `skills/streamscribe/SKILL.md` - agent skill
 
 ## Commands
 
 ```bash
-mic-audio-capture help        # show usage
-mic-audio-capture init-config # create user config
-mic-audio-capture devices     # list DirectShow/WASAPI devices
-mic-audio-capture live        # live Deepgram STT text output
-mic-audio-capture record      # stereo WAV recording
+streamscribe help        # show usage
+streamscribe init-config # create user config
+streamscribe devices     # list DirectShow/WASAPI devices
+streamscribe live        # live Deepgram STT text output
+streamscribe record      # stereo WAV recording
 bun run check                 # tests + TypeScript typecheck from a clone
 ```

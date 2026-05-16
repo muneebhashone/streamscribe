@@ -122,10 +122,11 @@ export function loadConfig(configPath: string): RecorderConfig {
 export function userConfigPath(): string {
   const home = process.env.USERPROFILE || process.env.HOME || process.cwd();
   const configHome = process.env.XDG_CONFIG_HOME || resolve(home, '.config');
-  return resolve(configHome, 'mic-and-audio-capture', 'recorder.config.json');
+  return resolve(configHome, 'streamscribe', 'recorder.config.json');
 }
 
 export function resolveConfigPath(root: string, cwd = process.cwd()): string {
+  if (process.env.STREAMSCRIBE_CONFIG) return resolve(process.env.STREAMSCRIBE_CONFIG);
   if (process.env.MIC_AUDIO_CAPTURE_CONFIG) return resolve(process.env.MIC_AUDIO_CAPTURE_CONFIG);
   if (process.env.AUDIO_RECORDER_CONFIG) return resolve(process.env.AUDIO_RECORDER_CONFIG);
 
@@ -628,10 +629,11 @@ export function liveTranscribeAndSpeak(config: RecorderConfig): void {
 
 export function help(configPath: string, config: RecorderConfig): string {
   return `Usage:
-  mic-audio-capture live             Start live Deepgram STT text output for both channels
-  mic-audio-capture record           Save a stereo WAV recording
-  mic-audio-capture devices          List available audio devices
-  mic-audio-capture init-config      Create a user config file
+  streamscribe live                  Start live Deepgram STT text output for both channels
+  streamscribe record                Save a stereo WAV recording
+  streamscribe devices               List available audio devices
+  streamscribe init-config           Create a user config file
+  mic-audio-capture live             Backward-compatible alias
   chrome-mic-stt live                Alias installed by the package
 
 Development:

@@ -1,14 +1,14 @@
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'https://github.com/muneebhashone/mic-and-audio-capture.git'
+$Repo = 'https://github.com/muneebhashone/streamscribe.git'
 $Pkg = "git+$Repo"
-$Bin = 'mic-audio-capture'
+$Bin = 'streamscribe'
 
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
   Write-Error "Bun is required but was not found on PATH. Install Bun from https://bun.sh/docs/installation, then rerun this installer."
 }
 
-Write-Host 'Installing mic-and-audio-capture globally with Bun...'
+Write-Host 'Installing streamscribe globally with Bun...'
 bun install -g $Pkg
 
 Write-Host ''

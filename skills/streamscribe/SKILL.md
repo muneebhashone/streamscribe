@@ -1,6 +1,6 @@
 ---
-name: mic-and-audio-capture
-description: Use when a user or agent needs to install, configure, troubleshoot, or operate the mic-audio-capture CLI for Deepgram live transcription or stereo WAV recording from separate Chrome/system and microphone audio sources.
+name: streamscribe
+description: Use when a user or agent needs to install, configure, troubleshoot, or operate the streamscribe CLI for Deepgram live transcription or stereo WAV recording from separate Chrome/system and microphone audio sources.
 version: 1.0.0
 author: Muneeb Hashone
 license: MIT
@@ -11,11 +11,11 @@ metadata:
     related_skills: [audio-capture-recording-apps, windows-audio-capture]
 ---
 
-# Mic and Audio Capture
+# StreamScribe
 
 ## Overview
 
-`mic-audio-capture` is a Bun + TypeScript terminal app for Windows audio workflows where Chrome/system playback and the physical microphone must stay separate. It can:
+`streamscribe` is a Bun + TypeScript terminal app for Windows audio workflows where Chrome/system playback and the physical microphone must stay separate. It can:
 
 - stream Chrome/system playback and microphone audio to separate Deepgram live STT websockets and print transcripts in the terminal
 - monitor original Chrome/system audio back into the user's headphones through FFplay when Chrome is routed to VB-CABLE
@@ -29,29 +29,29 @@ Use this skill for both human-facing setup and AI-agent operation. Do not invent
 Human shell install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.sh | sh
 ```
 
 Windows PowerShell install:
 
 ```powershell
-irm https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps1 | iex
 ```
 
 Direct Bun install:
 
 ```bash
-bun install -g git+https://github.com/muneebhashone/mic-and-audio-capture.git
+bun install -g git+https://github.com/muneebhashone/streamscribe.git
 ```
 
 After install, the main commands are:
 
 ```bash
-mic-audio-capture help
-mic-audio-capture init-config
-mic-audio-capture devices
-mic-audio-capture live
-mic-audio-capture record
+streamscribe help
+streamscribe init-config
+streamscribe devices
+streamscribe live
+streamscribe record
 ```
 
 `chrome-mic-stt` is an alias for the same CLI.
@@ -75,13 +75,13 @@ export DEEPGRAM_API_KEY="your_deepgram_key_here"
 1. Create a user config:
 
 ```bash
-mic-audio-capture init-config
+streamscribe init-config
 ```
 
 2. List capture devices:
 
 ```bash
-mic-audio-capture devices
+streamscribe devices
 ```
 
 3. Edit the generated config and set exact device names from the device list:
@@ -91,11 +91,12 @@ mic-audio-capture devices
 
 The CLI reads config in this order:
 
-1. `MIC_AUDIO_CAPTURE_CONFIG` environment variable
-2. `AUDIO_RECORDER_CONFIG` environment variable
-3. `recorder.config.json` in the current working directory
-4. user config at `~/.config/mic-and-audio-capture/recorder.config.json` or Windows equivalent
-5. package example config
+1. `STREAMSCRIBE_CONFIG` environment variable
+2. `MIC_AUDIO_CAPTURE_CONFIG` environment variable (legacy)
+3. `AUDIO_RECORDER_CONFIG` environment variable (legacy)
+4. `recorder.config.json` in the current working directory
+5. user config at `~/.config/streamscribe/recorder.config.json` or Windows equivalent
+6. package example config
 
 ## Chrome/VB-CABLE Routing
 
@@ -111,7 +112,7 @@ For live transcription where the user can still hear original Chrome audio:
 
 When operating for a user:
 
-1. Run `mic-audio-capture devices` and capture the DirectShow audio devices.
+1. Run `streamscribe devices` and capture the DirectShow audio devices.
 2. If the configured device is absent, update config or tell the user which routing/install step is missing.
 3. Verify FFmpeg and FFplay:
 
@@ -124,7 +125,7 @@ ffplay -version
 5. For live mode, tell the user to play Chrome audio, then run:
 
 ```bash
-mic-audio-capture live
+streamscribe live
 ```
 
 6. Stop with `q`, Enter, or Ctrl+C.
@@ -134,7 +135,7 @@ mic-audio-capture live
 To save a stereo WAV:
 
 ```bash
-mic-audio-capture record
+streamscribe record
 ```
 
 Channel map:
@@ -148,11 +149,11 @@ Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` under t
 
 1. **Transcription works but the user hears nothing.** Chrome may be routed to `CABLE Input` without monitoring enabled, or the default playback device may be VB-CABLE instead of the headset. Keep default playback as the headset and `monitor.enabled: true`.
 
-2. **Chrome audio does not transcribe.** The app can only capture devices exposed to FFmpeg. Run `mic-audio-capture devices` and verify `CABLE Output` or another loopback device appears.
+2. **Chrome audio does not transcribe.** The app can only capture devices exposed to FFmpeg. Run `streamscribe devices` and verify `CABLE Output` or another loopback device appears.
 
 3. **Wrong microphone source.** Do not capture the microphone through Chrome/tab audio. Configure `mic.device` as the physical DirectShow microphone.
 
-4. **WASAPI examples fail.** Some FFmpeg builds do not include WASAPI input support. Prefer DirectShow devices that appear in `mic-audio-capture devices`.
+4. **WASAPI examples fail.** Some FFmpeg builds do not include WASAPI input support. Prefer DirectShow devices that appear in `streamscribe devices`.
 
 5. **Feedback loops.** Do not play TTS or system audio into the same VB-CABLE endpoint that is being transcribed unless feedback is explicitly desired.
 
@@ -160,8 +161,8 @@ Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` under t
 
 ## Verification Checklist
 
-- [ ] `mic-audio-capture help` works
-- [ ] `mic-audio-capture devices` lists DirectShow audio devices
+- [ ] `streamscribe help` works
+- [ ] `streamscribe devices` lists DirectShow audio devices
 - [ ] `ffmpeg -version` and `ffplay -version` work
 - [ ] `DEEPGRAM_API_KEY` is set for live mode
 - [ ] Chrome is routed to `CABLE Input`

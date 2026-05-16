@@ -1,9 +1,9 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="https://github.com/muneebhashone/mic-and-audio-capture.git"
+REPO="https://github.com/muneebhashone/streamscribe.git"
 PKG="git+${REPO}"
-BIN="mic-audio-capture"
+BIN="streamscribe"
 
 if ! command -v bun >/dev/null 2>&1; then
   cat >&2 <<'MSG'
@@ -14,7 +14,7 @@ MSG
   exit 1
 fi
 
-echo "Installing mic-and-audio-capture globally with Bun..."
+echo "Installing streamscribe globally with Bun..."
 bun install -g "$PKG"
 
 echo

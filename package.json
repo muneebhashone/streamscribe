@@ -1,9 +1,10 @@
 {
-  "name": "@muneebhashone/mic-and-audio-capture",
+  "name": "@muneebhashone/streamscribe",
   "version": "1.1.0",
   "description": "Bun + TypeScript CLI for Deepgram live STT and stereo recording from separate Chrome/system and microphone audio sources.",
   "type": "module",
   "bin": {
+    "streamscribe": "./src/cli.ts",
     "mic-audio-capture": "./src/cli.ts",
     "chrome-mic-stt": "./src/cli.ts",
     "audio-recorder": "./src/cli.ts"
@@ -30,11 +31,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com:muneebhashone/mic-and-audio-capture.git"
+    "url": "git+ssh://git@github.com:muneebhashone/streamscribe.git"
   },
-  "homepage": "https://github.com/muneebhashone/mic-and-audio-capture#readme",
+  "homepage": "https://github.com/muneebhashone/streamscribe#readme",
   "bugs": {
-    "url": "https://github.com/muneebhashone/mic-and-audio-capture/issues"
+    "url": "https://github.com/muneebhashone/streamscribe/issues"
   },
   "keywords": [
     "bun",

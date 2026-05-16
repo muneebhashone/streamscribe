@@ -7,26 +7,29 @@ const readJson = (path: string) => JSON.parse(readFileSync(join(root, path), 'ut
 const readText = (path: string) => readFileSync(join(root, path), 'utf8');
 
 describe('Bun package distribution', () => {
-  test('package exposes stable CLI bins and publish metadata', () => {
+  test('package exposes StreamScribe CLI bins and publish metadata', () => {
     const pkg = readJson('package.json');
 
-    expect(pkg.name).toBe('@muneebhashone/mic-and-audio-capture');
-    expect(pkg.bin['mic-audio-capture']).toBe('./src/cli.ts');
+    expect(pkg.name).toBe('@muneebhashone/streamscribe');
+    expect(pkg.bin.streamscribe).toBe('./src/cli.ts');
+    expect(pkg.bin['streamscribe']).toBe('./src/cli.ts');
     expect(pkg.bin['chrome-mic-stt']).toBe('./src/cli.ts');
-    expect(pkg.repository.url).toContain('github.com:muneebhashone/mic-and-audio-capture.git');
+    expect(pkg.repository.url).toContain('github.com:muneebhashone/streamscribe.git');
     expect(pkg.files).toContain('src');
     expect(pkg.files).toContain('recorder.config.example.json');
     expect(pkg.files).toContain('skills');
   });
 
-  test('curl and irm installers are present and point at the package repository', () => {
+  test('curl and irm installers point at the StreamScribe repository', () => {
     const sh = readText('install.sh');
     const ps1 = readText('install.ps1');
 
     expect(sh).toContain('bun install -g');
-    expect(sh).toContain('github.com/muneebhashone/mic-and-audio-capture');
+    expect(sh).toContain('github.com/muneebhashone/streamscribe');
+    expect(sh).toContain('BIN="streamscribe"');
     expect(ps1).toContain('bun install -g');
-    expect(ps1).toContain('github.com/muneebhashone/mic-and-audio-capture');
+    expect(ps1).toContain('github.com/muneebhashone/streamscribe');
+    expect(ps1).toContain("$Bin = 'streamscribe'");
   });
 
   test('example config ships separately from local user config', () => {
@@ -38,29 +41,32 @@ describe('Bun package distribution', () => {
 });
 
 describe('agent skill distribution', () => {
-  test('ships a valid SKILL.md for AI agents', () => {
-    const content = readText('skills/mic-and-audio-capture/SKILL.md');
+  test('ships a valid StreamScribe SKILL.md for AI agents', () => {
+    const content = readText('skills/streamscribe/SKILL.md');
 
-    expect(content.startsWith('---\n')).toBe(true);
-    expect(content).toContain('name: mic-and-audio-capture');
+    expect(content.startsWith('---')).toBe(true);
+    expect(content).toContain('name: streamscribe');
     expect(content).toContain('description: Use when');
-    expect(content).toContain('mic-audio-capture');
+    expect(content).toContain('streamscribe');
     expect(content).toContain('Deepgram');
   });
 
-  test('skills.sh manifest advertises the local skill path', () => {
+  test('skills.sh manifest advertises the StreamScribe skill path', () => {
     const manifest = readJson('skills.json');
 
-    expect(manifest.skills[0].name).toBe('mic-and-audio-capture');
-    expect(manifest.skills[0].path).toBe('skills/mic-and-audio-capture');
+    expect(manifest.repository).toBe('https://github.com/muneebhashone/streamscribe');
+    expect(manifest.skills[0].name).toBe('streamscribe');
+    expect(manifest.skills[0].path).toBe('skills/streamscribe');
     expect(manifest.skills[0].agents).toContain('claude');
     expect(manifest.skills[0].agents).toContain('codex');
   });
 
-  test('README documents the skills.sh install command', () => {
+  test('README documents StreamScribe commands and skills.sh install command', () => {
     const readme = readText('README.md');
 
+    expect(readme).toContain('# StreamScribe');
     expect(readme).toContain('https://www.skills.sh/');
-    expect(readme).toContain('npx skills add muneebhashone/mic-and-audio-capture');
+    expect(readme).toContain('npx skills add muneebhashone/streamscribe');
+    expect(readme).toContain('streamscribe live');
   });
 });
