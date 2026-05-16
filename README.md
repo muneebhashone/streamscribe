@@ -29,6 +29,8 @@ Direct Bun install:
 bun install -g git+https://github.com/muneebhashone/streamscribe.git
 ```
 
+The one-line installers check for `ffmpeg` and `ffplay`; when either is missing they try to install FFmpeg with the platform package manager (`brew`, `apt-get`, `dnf`, `yum`, `pacman`, `winget`, or Chocolatey). They also check for `DEEPGRAM_API_KEY`; if it is missing, they prompt for a key and save it for future StreamScribe runs.
+
 Installed commands:
 
 ```bash

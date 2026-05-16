@@ -32,6 +32,35 @@ describe('Bun package distribution', () => {
     expect(ps1).toContain("$Bin = 'streamscribe'");
   });
 
+  test('installers install or guide FFmpeg and FFplay setup', () => {
+    const sh = readText('install.sh');
+    const ps1 = readText('install.ps1');
+
+    expect(sh).toContain('ensure_media_tools');
+    expect(sh).toContain('have ffmpeg');
+    expect(sh).toContain('have ffplay');
+    expect(sh).toContain('brew install ffmpeg');
+    expect(sh).toContain('apt-get install -y ffmpeg');
+    expect(ps1).toContain('Ensure-MediaTools');
+    expect(ps1).toContain('Get-Command ffmpeg');
+    expect(ps1).toContain('Get-Command ffplay');
+    expect(ps1).toContain('winget install');
+  });
+
+  test('installers prompt for and persist a missing Deepgram API key', () => {
+    const sh = readText('install.sh');
+    const ps1 = readText('install.ps1');
+
+    expect(sh).toContain('DEEPGRAM_API_KEY');
+    expect(sh).toContain('read -r DEEPGRAM_API_KEY_INPUT');
+    expect(sh).toContain('save_deepgram_key');
+    expect(sh).toContain('export DEEPGRAM_API_KEY=');
+    expect(ps1).toContain('DEEPGRAM_API_KEY');
+    expect(ps1).toContain('Read-Host');
+    expect(ps1).toContain('SetEnvironmentVariable');
+    expect(ps1).toContain('User');
+  });
+
   test('example config ships separately from local user config', () => {
     expect(existsSync(join(root, 'recorder.config.example.json'))).toBe(true);
     const example = readJson('recorder.config.example.json');
