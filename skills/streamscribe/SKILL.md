@@ -127,7 +127,7 @@ If no loopback driver is detected at all, the CLI prints install URLs for screen
 5. user config at `%USERPROFILE%\.config\streamscribe\recorder.config.json`
 6. package example config
 
-The picker writes to the user config path. When `--pick` overwrites an existing config that was hand-edited (differs from the example), the old file is copied to `recorder.config.json.bak.<timestamp>` first.
+The picker writes back to the same config path that was loaded. If a `recorder.config.json` exists in the working directory, that file is updated (useful for dev). Otherwise the user config at `%USERPROFILE%\.config\streamscribe\recorder.config.json` is written. When `--pick` overwrites a config that was hand-edited (differs from the example), the old file is copied to `recorder.config.json.bak.<timestamp>` first. The picker always resets `monitor.enabled` to `"auto"` so the heuristic decides correctly for the new source.
 
 ## Config Schema (Notable Fields)
 

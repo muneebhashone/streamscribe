@@ -1,13 +1,14 @@
 # StreamScribe
 
-Bun + TypeScript CLI for Windows audio workflows where Chrome/system playback and microphone audio need to stay separate.
+Bun + TypeScript CLI for Windows audio workflows where system playback (any app — Chrome, Zoom, Spotify, a game) and your microphone need to stay on separate channels.
 
 It can:
 
-- stream Chrome/system playback and microphone audio to separate Deepgram live STT websockets and print live transcripts in the terminal
-- monitor the original Chrome/system audio back into your headphones when Chrome is routed through VB-CABLE
-- save a stereo WAV recording with Chrome/system playback on the left channel and microphone on the right channel
-- list FFmpeg DirectShow devices so humans and agents can configure exact device names
+- stream a playback loopback source and a microphone to separate Deepgram live STT websockets and print live transcripts in the terminal
+- save a stereo WAV recording with playback on the left channel and microphone on the right channel
+- run an interactive picker that lists actual capture devices on the machine and saves the selection — no manual JSON editing
+- auto-decide whether the FFplay monitor is needed (skipped for parallel-tap loopbacks, enabled for VB-CABLE)
+- list FFmpeg DirectShow devices for humans and agents
 
 ## One-line install
 
@@ -35,13 +36,16 @@ Installed commands:
 
 ```bash
 streamscribe help
-streamscribe init-config
-streamscribe devices
-streamscribe live
-streamscribe record
+streamscribe live              # picks sources on first run, then starts live
+streamscribe live --pick       # re-pick sources, then go live
+streamscribe record            # stereo WAV recording
+streamscribe record --pick     # re-pick sources, then record
+streamscribe pick              # picker only — update saved config
+streamscribe devices           # raw FFmpeg device dump
+streamscribe init-config       # create a user config file
 ```
 
-`chrome-mic-stt` and `audio-recorder` are aliases for the same CLI.
+`chrome-mic-stt`, `mic-audio-capture`, and `audio-recorder` are aliases for the same CLI.
 
 ## Requirements
 
@@ -49,7 +53,7 @@ streamscribe record
 2. FFmpeg and FFplay available on `PATH`
 3. A Deepgram API key in `DEEPGRAM_API_KEY`
 4. Windows audio permissions for microphone access
-5. A loopback/recording device for Chrome/system playback, such as VB-CABLE
+5. A playback-capture driver — see below
 
 Check requirements:
 
@@ -65,32 +69,52 @@ Set your Deepgram API key in the shell before live mode, or put it in a `.env` f
 export DEEPGRAM_API_KEY="your_deepgram_key_here"
 ```
 
+## Playback capture driver
+
+Pick one. The picker offers whichever is installed.
+
+- **screen-capture-recorder** (recommended) — `https://github.com/rdp/screen-capture-recorder-to-video-windows-free`
+  Adds the `virtual-audio-capturer` DirectShow device. It is a parallel tap on your default render endpoint: it captures whatever any app is playing through your default output, and you keep hearing audio normally. No per-app routing, no FFplay monitor needed.
+- **VB-CABLE** — `https://vb-audio.com/Cable/`
+  A virtual sink. Requires per-app routing in Windows Settings → Sound → App volume & device preferences (set each app you want captured to `CABLE Input`). The auto monitor logic enables FFplay so you can still hear the routed app.
+- **Stereo Mix** — built into some sound cards. Enable it in Sound Control Panel → Recording → right-click → Show Disabled Devices → Enable.
+
+If no loopback driver is detected, the CLI prints install URLs and exits without launching anything.
+
 ## Quick start
 
-Create a user config:
-
-```bash
-streamscribe init-config
-```
-
-List available devices:
-
-```bash
-streamscribe devices
-```
-
-Edit the generated config and set:
-
-- `browser.device` to the exact loopback device, usually `CABLE Output (VB-Audio Virtual Cable)`
-- `mic.device` to the exact physical microphone device
-
-Start live Deepgram STT text output for both channels:
+Just go live:
 
 ```bash
 streamscribe live
 ```
 
-Live mode prints transcripts to the terminal as `[time] [browser] text` and `[time] [microphone] text`. Deepgram TTS is not used. Press `q`, `Enter`, or `Ctrl+C` to stop.
+On first run, an interactive picker lists your real capture devices and asks you to pick a playback source and a microphone:
+
+```
+First-time setup: pick your audio sources.
+
+Playback source (any app's audio — Chrome, Zoom, Spotify, etc.):
+  1) virtual-audio-capturer                          [recommended]
+  2) CABLE Output (VB-Audio Virtual Cable)
+  3) Stereo Mix (Realtek HD Audio)
+  c) cancel
+
+> 1
+
+Microphone (pick one of your attached mics):
+  1) Headset Microphone (Plantronics Blackwire 3220 Series)
+  2) Microphone Array (Realtek HD Audio)
+  c) cancel
+
+> 1
+
+Saved to: C:\Users\<you>\.config\streamscribe\recorder.config.json
+```
+
+The selection is saved. Subsequent `streamscribe live` runs skip the picker. Use `streamscribe live --pick` or `streamscribe pick` to re-prompt.
+
+Live mode prints transcripts to the terminal as `[time] [playback] text` and `[time] [microphone] text`. Press `q`, `Enter`, or `Ctrl+C` to stop.
 
 Recording mode:
 
@@ -98,7 +122,7 @@ Recording mode:
 streamscribe record
 ```
 
-Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` with Chrome/system playback on the left channel and microphone on the right channel.
+Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` with playback on the left channel and microphone on the right channel.
 
 ## Configuration
 
@@ -111,7 +135,15 @@ The CLI reads config in this order:
 5. user config at `~/.config/streamscribe/recorder.config.json` or Windows equivalent
 6. package `recorder.config.example.json`
 
-Example config ships as `recorder.config.example.json`.
+The picker writes back to the same path it loaded from (cwd config in dev, user config when installed). Edited configs are backed up to `recorder.config.json.bak.<timestamp>` before overwrite. The picker always resets `monitor.enabled` to `"auto"`.
+
+Notable schema fields:
+
+- `browser.device` — playback source name (JSON key is `browser` for backward compat; it captures any app's playback)
+- `mic.device` — microphone device name
+- `monitor.enabled` — `"auto"` | `true` | `false`. `"auto"` is the default: monitor is on for VB-CABLE (exclusive sink), off for `virtual-audio-capturer` and Stereo Mix (parallel taps, you already hear audio natively), off for `wasapi-loopback`.
+
+Example config ships as `recorder.config.example.json`:
 
 ```json
 {
@@ -119,7 +151,7 @@ Example config ships as `recorder.config.example.json`.
   "outputDir": "recordings",
   "sampleRate": 48000,
   "monitor": {
-    "enabled": true,
+    "enabled": "auto",
     "ffplayPath": "ffplay",
     "volume": 100
   },
@@ -143,34 +175,29 @@ Example config ships as `recorder.config.example.json`.
     "debug": false
   },
   "browser": {
-    "label": "Chrome / system audio",
+    "label": "System playback (any app)",
     "backend": "dshow",
-    "device": "CABLE Output (VB-Audio Virtual Cable)",
+    "device": "",
     "channel": "left",
-    "ttsName": "browser"
+    "ttsName": "playback"
   },
   "mic": {
-    "label": "System microphone",
+    "label": "Microphone",
     "backend": "dshow",
-    "device": "Headset Microphone (Plantronics Blackwire 3220 Series)",
+    "device": "",
     "channel": "right",
     "ttsName": "microphone"
   }
 }
 ```
 
-## Capturing Chrome audio and still hearing it
+Empty `device` fields trigger the picker on first run.
 
-A normal microphone appears to FFmpeg as a capture device, but Chrome audio usually does not. For isolated Chrome capture, route Chrome to a virtual audio playback device and record the matching capture endpoint.
+## Capturing system audio and still hearing it
 
-Recommended VB-CABLE setup:
+With `virtual-audio-capturer` (recommended): nothing to configure. It is a parallel tap on your default output, so any app that plays through your headset is captured, and you keep hearing audio normally. The picker picks this when present and `monitor.enabled: "auto"` skips the FFplay monitor automatically.
 
-1. Keep Windows default playback set to your real headset/speakers.
-2. Route only Chrome to `CABLE Input` in Windows App volume/device preferences.
-3. Set `browser.device` to `CABLE Output (VB-Audio Virtual Cable)`.
-4. Keep `monitor.enabled: true` so FFplay plays the original cable audio to your default headset.
-
-Do not set the whole Windows default playback device to VB-CABLE unless you intentionally want all system audio captured.
+With VB-CABLE: route each app you want captured to `CABLE Input` in Windows Settings → Sound → App volume & device preferences. The picker still works; `monitor.enabled: "auto"` turns FFplay on so you can hear the routed app through your default headset. Do not set the whole Windows default output to VB-CABLE unless you intentionally want all system audio captured.
 
 ## Agent skill
 
@@ -186,7 +213,7 @@ Install the skill through the [skills.sh](https://www.skills.sh/) CLI:
 npx skills add muneebhashone/streamscribe
 ```
 
-The skill is advertised in `skills.json` for skills.sh-style registries. Agents can use it to install the CLI, discover devices, configure VB-CABLE routing, and operate live transcription or recording safely.
+The skill is advertised in `skills.json` for skills.sh-style registries. Agents can use it to install the CLI, discover devices, configure routing, and operate live transcription or recording safely.
 
 If your agent supports installing skills from a GitHub repository, point it at this repo or at the skill path above.
 
@@ -204,19 +231,23 @@ bun src/cli.ts help
 
 Project layout:
 
-- `src/cli.ts` - Bun CLI entrypoint
-- `src/lib.ts` - typed configuration, FFmpeg args, Deepgram websocket, recorder/live logic
-- `tests/lib.test.ts` - unit tests for pure behavior
-- `tests/distribution.test.ts` - package, installer, and skill distribution tests
-- `skills/streamscribe/SKILL.md` - agent skill
+- `src/cli.ts` — Bun CLI entrypoint (parses `--pick`, dispatches commands)
+- `src/lib.ts` — typed config, FFmpeg args, Deepgram websocket, device probe/enumeration, picker plumbing, recorder/live logic
+- `src/picker.ts` — interactive readline picker (number entry, zero new deps)
+- `tests/lib.test.ts` — unit tests for parser, classifier, monitor logic, config helpers, FFmpeg arg builders
+- `tests/distribution.test.ts` — package, installer, and skill distribution tests
+- `skills/streamscribe/SKILL.md` — agent skill
 
 ## Commands
 
 ```bash
-streamscribe help        # show usage
-streamscribe init-config # create user config
-streamscribe devices     # list DirectShow/WASAPI devices
-streamscribe live        # live Deepgram STT text output
-streamscribe record      # stereo WAV recording
-bun run check                 # tests + TypeScript typecheck from a clone
+streamscribe help              # show usage
+streamscribe live              # picks sources on first run, then starts live
+streamscribe live --pick       # re-pick sources, then go live
+streamscribe record            # stereo WAV recording
+streamscribe record --pick     # re-pick sources, then record
+streamscribe pick              # picker only — update saved config
+streamscribe devices           # raw FFmpeg device dump
+streamscribe init-config       # create a user config file
+bun run check                  # tests + TypeScript typecheck from a clone
 ```
