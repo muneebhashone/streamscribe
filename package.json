@@ -1,20 +1,51 @@
 {
-  "name": "chrome-mic-channel-recorder",
-  "version": "1.0.0",
-  "description": "Bun + TypeScript terminal audio app that streams browser/system audio and microphone audio as separate Deepgram live STT channels.",
+  "name": "@muneebhashone/mic-and-audio-capture",
+  "version": "1.1.0",
+  "description": "Bun + TypeScript CLI for Deepgram live STT and stereo recording from separate Chrome/system and microphone audio sources.",
   "type": "module",
   "bin": {
+    "mic-audio-capture": "./src/cli.ts",
+    "chrome-mic-stt": "./src/cli.ts",
     "audio-recorder": "./src/cli.ts"
   },
+  "files": [
+    "src",
+    "skills",
+    "install.sh",
+    "install.ps1",
+    "skills.json",
+    "recorder.config.example.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "start": "bun src/cli.ts live",
     "live": "bun src/cli.ts live",
     "record": "bun src/cli.ts record",
     "devices": "bun src/cli.ts devices",
+    "init-config": "bun src/cli.ts init-config",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bun test && tsc --noEmit"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com:muneebhashone/mic-and-audio-capture.git"
+  },
+  "homepage": "https://github.com/muneebhashone/mic-and-audio-capture#readme",
+  "bugs": {
+    "url": "https://github.com/muneebhashone/mic-and-audio-capture/issues"
+  },
+  "keywords": [
+    "bun",
+    "audio",
+    "ffmpeg",
+    "deepgram",
+    "stt",
+    "transcription",
+    "vb-cable",
+    "windows"
+  ],
   "engines": {
     "bun": ">=1.3.0"
   },

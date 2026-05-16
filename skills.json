@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "repository": "https://github.com/muneebhashone/mic-and-audio-capture",
+  "skills": [
+    {
+      "name": "mic-and-audio-capture",
+      "path": "skills/mic-and-audio-capture",
+      "description": "Use the mic-audio-capture CLI to transcribe separate Chrome/system and microphone audio streams with Deepgram or record them into a stereo WAV.",
+      "agents": ["claude", "codex", "copilot", "cursor", "cline"],
+      "install": {
+        "curl": "curl -fsSL https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.sh | sh",
+        "irm": "irm https://raw.githubusercontent.com/muneebhashone/mic-and-audio-capture/main/install.ps1 | iex"
+      }
+    }
+  ]
+}

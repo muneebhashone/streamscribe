@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 export type AudioBackend = 'dshow' | 'wasapi' | 'wasapi-loopback';
 
@@ -117,6 +117,36 @@ export function loadConfig(configPath: string): RecorderConfig {
   if (!existsSync(configPath)) return mergeConfig();
   const fileConfig = JSON.parse(readFileSync(configPath, 'utf8')) as PartialRecorderConfig;
   return mergeConfig(fileConfig);
+}
+
+export function userConfigPath(): string {
+  const home = process.env.USERPROFILE || process.env.HOME || process.cwd();
+  const configHome = process.env.XDG_CONFIG_HOME || resolve(home, '.config');
+  return resolve(configHome, 'mic-and-audio-capture', 'recorder.config.json');
+}
+
+export function resolveConfigPath(root: string, cwd = process.cwd()): string {
+  if (process.env.MIC_AUDIO_CAPTURE_CONFIG) return resolve(process.env.MIC_AUDIO_CAPTURE_CONFIG);
+  if (process.env.AUDIO_RECORDER_CONFIG) return resolve(process.env.AUDIO_RECORDER_CONFIG);
+
+  const cwdConfig = resolve(cwd, 'recorder.config.json');
+  if (existsSync(cwdConfig)) return cwdConfig;
+
+  const userConfig = userConfigPath();
+  if (existsSync(userConfig)) return userConfig;
+
+  const packageConfig = resolve(root, 'recorder.config.json');
+  if (existsSync(packageConfig)) return packageConfig;
+
+  return resolve(root, 'recorder.config.example.json');
+}
+
+export function initConfig(targetPath = userConfigPath(), examplePath = resolve(dirname(targetPath), 'recorder.config.example.json')): string {
+  if (existsSync(targetPath)) return targetPath;
+  mkdirSync(dirname(targetPath), { recursive: true });
+  if (existsSync(examplePath)) copyFileSync(examplePath, targetPath);
+  else writeFileSync(targetPath, `${JSON.stringify(defaultConfig, null, 2)}\n`);
+  return targetPath;
 }
 
 export function timestampForDate(d = new Date()): string {
@@ -598,13 +628,16 @@ export function liveTranscribeAndSpeak(config: RecorderConfig): void {
 
 export function help(configPath: string, config: RecorderConfig): string {
   return `Usage:
-  bun start              Start live Deepgram STT text output for both channels, no recording/TTS
-  bun run live           Start live Deepgram STT text output for both channels, no recording/TTS
-  bun run record         Save a stereo WAV recording
-  bun run devices        List available audio devices
-  bun src/cli.ts live    Start live Deepgram STT text output
-  bun src/cli.ts record  Save a stereo WAV recording
-  bun src/cli.ts devices List FFmpeg devices
+  mic-audio-capture live             Start live Deepgram STT text output for both channels
+  mic-audio-capture record           Save a stereo WAV recording
+  mic-audio-capture devices          List available audio devices
+  mic-audio-capture init-config      Create a user config file
+  chrome-mic-stt live                Alias installed by the package
+
+Development:
+  bun start                          Start live mode from a clone
+  bun run record                     Save a recording from a clone
+  bun run devices                    List FFmpeg devices from a clone
 
 Config: ${configPath}
 Deepgram API key: set ${config.deepgram?.apiKeyEnv || 'DEEPGRAM_API_KEY'}
