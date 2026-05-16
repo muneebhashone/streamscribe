@@ -1,30 +1,37 @@
-# Chrome + microphone Deepgram live STT/TTS
+# Chrome + microphone Deepgram live STT
 
-Terminal-only Node.js audio app for two separate Windows audio sources:
+Terminal-only Bun + TypeScript audio app for two separate Windows audio sources:
 
 - Chrome/system playback, usually from `CABLE Output (VB-Audio Virtual Cable)`
 - direct system microphone, usually from a DirectShow microphone device
 
-`npm start` streams each source to its own Deepgram live STT websocket using the latest Nova model configured here (`nova-3`) and prints live transcripts in the terminal. Deepgram TTS is disabled by default; the audio you hear should be the original audio, not a Deepgram voice.
+`bun start` streams each source to its own Deepgram live STT websocket using `nova-3` by default and prints live transcripts in the terminal. Deepgram TTS support remains in the code, but live mode keeps it disabled by default so the audio you hear is the original audio, not a Deepgram voice.
 
-The old WAV recorder is still available with `npm run record`.
+The WAV recorder is available with `bun run record`.
 
 ## Requirements
 
-1. Node.js 18+
+1. Bun 1.3+
 2. FFmpeg and FFplay available on `PATH`
 3. A Deepgram API key in `DEEPGRAM_API_KEY`
 4. Windows audio permissions for microphone access
 5. A loopback/recording device for Chrome/system playback, such as VB-CABLE
 
-Check FFmpeg/FFplay:
+Check Bun and FFmpeg/FFplay:
 
 ```bash
+bun --version
 ffmpeg -version
 ffplay -version
 ```
 
-Set your Deepgram API key in the shell before live mode, or put it in the project `.env` file:
+Install dependencies:
+
+```bash
+bun install
+```
+
+Set your Deepgram API key in the shell before live mode, or put it in the project `.env` file. Bun automatically loads `.env`.
 
 ```bash
 export DEEPGRAM_API_KEY="your_deepgram_key_here"
@@ -41,23 +48,23 @@ DEEPGRAM_API_KEY=your_deepgram_key_here
 List available devices:
 
 ```bash
-npm run devices
+bun run devices
 ```
 
 Start live Deepgram STT text output for both channels:
 
 ```bash
-npm start
+bun start
 # or
-npm run live
+bun run live
 ```
 
-Live mode prints transcripts to the terminal as `[time] [browser] text` and `[time] [microphone] text`. Deepgram TTS is not used. The project `.npmrc` sets `loglevel=silent`, so `npm start` does not print the usual npm script banner. Press `q`, `Enter`, or `Ctrl+C` to stop.
+Live mode prints transcripts to the terminal as `[time] [browser] text` and `[time] [microphone] text`. Deepgram TTS is not used. Press `q`, `Enter`, or `Ctrl+C` to stop.
 
-Optional legacy recording mode:
+Recording mode:
 
 ```bash
-npm run record
+bun run record
 ```
 
 Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` with Chrome/system playback on the left channel and microphone on the right channel.
@@ -112,7 +119,7 @@ Edit `recorder.config.json`.
 }
 ```
 
-### Deepgram live STT separation
+## Deepgram live STT separation
 
 Live mode does not merge the sources before transcription. It starts two FFmpeg capture pipelines and two Deepgram live STT websocket connections:
 
@@ -123,25 +130,7 @@ That keeps the channels separate for Deepgram live STT. Final transcripts from b
 
 Deepgram TTS is disabled by default (`deepgram.ttsEnabled: false`) and is not used by live mode. If Chrome is routed to VB-CABLE and you still want to hear the original browser audio, keep `monitor.enabled: true`; the app will monitor `CABLE Output` through FFplay and play that original audio to the Windows default playback device.
 
-### Terminal output
-
-Live mode uses:
-
-- FFmpeg `-loglevel error`
-- child-process stderr ignored unless `deepgram.debug` is `true`
-- `console.log` for final transcripts
-- in-place terminal updates for interim transcripts when `deepgram.printInterim` is `true`
-- project `.npmrc` with `loglevel=silent` to suppress npm's script banner
-
-If you need troubleshooting output, set:
-
-```json
-"debug": true
-```
-
-inside the `deepgram` object.
-
-### Capturing Chrome audio
+## Capturing Chrome audio
 
 A normal microphone appears to FFmpeg as a capture device, but Chrome audio usually does not. For isolated Chrome capture, route Chrome to a virtual audio playback device and record the matching capture endpoint.
 
@@ -156,27 +145,33 @@ For the “hear original audio in headset while transcribing separately” setup
 After installing/routing, run:
 
 ```bash
-npm run devices
+bun run devices
 ```
 
 Then set `browser.device` exactly as FFmpeg prints it.
 
-### Selecting the system microphone
-
-The microphone is captured directly from Windows/DirectShow, not from Chrome. Run:
+## Development
 
 ```bash
-npm run devices
+bun test          # unit tests
+bun run typecheck # TypeScript strict typecheck
+bun run check     # tests + typecheck
 ```
 
-Then set `mic.device` exactly as FFmpeg prints it.
+Project layout:
+
+- `src/cli.ts` - Bun CLI entrypoint
+- `src/lib.ts` - typed configuration, FFmpeg args, Deepgram websocket, recorder/live logic
+- `tests/lib.test.ts` - unit tests for pure behavior
 
 ## Commands
 
 ```bash
-npm start       # live Deepgram STT text output, no Deepgram TTS, no recording
-npm run live    # same as npm start
-npm run record  # legacy stereo WAV recording
-npm run devices # list DirectShow/WASAPI devices
-npm run check   # syntax check
+bun start         # live Deepgram STT text output, no Deepgram TTS, no recording
+bun run live      # same as bun start
+bun run record    # stereo WAV recording
+bun run devices   # list DirectShow/WASAPI devices
+bun test          # test suite
+bun run typecheck # TypeScript typecheck
+bun run check     # tests + typecheck
 ```
