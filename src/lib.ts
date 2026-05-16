@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { runPicker } from './picker';
 
 export type AudioBackend = 'dshow' | 'wasapi' | 'wasapi-loopback';
 
@@ -13,10 +14,25 @@ export interface AudioSourceConfig {
   ttsModel?: string;
 }
 
+export type MonitorEnabled = boolean | 'auto';
+
 export interface MonitorConfig {
-  enabled: boolean;
+  enabled: MonitorEnabled;
   ffplayPath: string;
   volume: number;
+}
+
+export type AudioDeviceKind = 'loopback' | 'mic';
+
+export interface DiscoveredDevice {
+  name: string;
+  kind: AudioDeviceKind;
+  source: 'dshow' | 'wasapi';
+}
+
+export interface FfmpegCapabilities {
+  hasDshow: boolean;
+  hasWasapi: boolean;
 }
 
 export interface DeepgramConfig {
@@ -66,7 +82,7 @@ export const defaultConfig: RecorderConfig = {
   ffmpegPath: 'ffmpeg',
   outputDir: 'recordings',
   sampleRate: 48000,
-  monitor: { enabled: true, ffplayPath: 'ffplay', volume: 100 },
+  monitor: { enabled: 'auto', ffplayPath: 'ffplay', volume: 100 },
   deepgram: {
     apiKeyEnv: 'DEEPGRAM_API_KEY',
     sttModel: 'nova-3',
@@ -87,16 +103,16 @@ export const defaultConfig: RecorderConfig = {
     debug: false,
   },
   browser: {
-    label: 'Chrome / system audio',
+    label: 'System playback (any app)',
     backend: 'dshow',
-    device: 'CABLE Output (VB-Audio Virtual Cable)',
+    device: '',
     channel: 'left',
-    ttsName: 'browser',
+    ttsName: 'playback',
   },
   mic: {
-    label: 'System microphone',
+    label: 'Microphone',
     backend: 'dshow',
-    device: 'default',
+    device: '',
     channel: 'right',
     ttsName: 'microphone',
   },
@@ -183,11 +199,241 @@ export function runPassthrough(command: string, args: string[]): Promise<void> {
   });
 }
 
+export function captureFfmpegOutput(command: string, args: string[], timeoutMs = 5000): Promise<{ stdout: string; stderr: string; code: number | null }> {
+  return new Promise(resolvePromise => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const p = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise({ stdout, stderr, code });
+    };
+    const timer = setTimeout(() => {
+      if (!p.killed) p.kill('SIGKILL');
+      finish(null);
+    }, timeoutMs);
+    timer.unref?.();
+    p.stdout?.on('data', chunk => { stdout += chunk.toString('utf8'); });
+    p.stderr?.on('data', chunk => { stderr += chunk.toString('utf8'); });
+    p.on('error', () => finish(null));
+    p.on('exit', code => finish(code));
+  });
+}
+
+const LOOPBACK_DEVICE_PATTERN = /(virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder)/i;
+const OBVIOUS_NON_MIC_PATTERN = /(output|loopback|virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder)/i;
+const DSHOW_DEVICE_LINE = /^\[dshow @ [^\]]+\]\s+"([^"]+)"\s+\((audio|video|none)\)\s*$/gm;
+const INDEV_LINE = /^\s*D\s+(\S+)/;
+
+export function classifyDevice(name: string): AudioDeviceKind {
+  if (LOOPBACK_DEVICE_PATTERN.test(name)) return 'loopback';
+  return 'mic';
+}
+
+export async function probeIndevs(ffmpegPath: string): Promise<FfmpegCapabilities> {
+  const cached = (globalThis as Record<string, unknown>).__streamscribeIndevs as FfmpegCapabilities | undefined;
+  if (cached) return cached;
+  const { stdout, stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-devices']);
+  const text = `${stdout}\n${stderr}`;
+  const indevs = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const m = INDEV_LINE.exec(line);
+    if (m && m[1]) indevs.add(m[1]);
+  }
+  const caps: FfmpegCapabilities = {
+    hasDshow: indevs.has('dshow'),
+    hasWasapi: indevs.has('wasapi'),
+  };
+  (globalThis as Record<string, unknown>).__streamscribeIndevs = caps;
+  return caps;
+}
+
+export function parseDshowDevices(stderr: string): DiscoveredDevice[] {
+  const devices: DiscoveredDevice[] = [];
+  const seen = new Set<string>();
+  let match: RegExpExecArray | null;
+  DSHOW_DEVICE_LINE.lastIndex = 0;
+  while ((match = DSHOW_DEVICE_LINE.exec(stderr)) !== null) {
+    const [, name, kind] = match;
+    if (!name || kind !== 'audio') continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    devices.push({ name, kind: classifyDevice(name), source: 'dshow' });
+  }
+  return devices;
+}
+
+export async function enumerateAudioSources(ffmpegPath: string): Promise<DiscoveredDevice[]> {
+  const caps = await probeIndevs(ffmpegPath);
+  const devices: DiscoveredDevice[] = [];
+  if (caps.hasDshow) {
+    const { stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+    devices.push(...parseDshowDevices(stderr));
+  }
+  return devices;
+}
+
+export function filterPlaybackSources(devices: DiscoveredDevice[]): DiscoveredDevice[] {
+  return devices.filter(d => d.kind === 'loopback');
+}
+
+export function filterMicSources(devices: DiscoveredDevice[]): DiscoveredDevice[] {
+  return devices.filter(d => d.kind === 'mic' && !OBVIOUS_NON_MIC_PATTERN.test(d.name));
+}
+
+export function monitorShouldRun(config: RecorderConfig): boolean {
+  const enabled = config.monitor?.enabled;
+  if (enabled === false) return false;
+  if (enabled === true) return true;
+  const backend = config.browser?.backend;
+  if (backend === 'wasapi-loopback') return false;
+  const device = config.browser?.device || '';
+  if (/virtual-audio-capturer|Stereo Mix|VoiceMeeter Out|screen-capture-recorder/i.test(device)) return false;
+  if (/CABLE Output/i.test(device)) return true;
+  return true;
+}
+
+export function isConfigUsable(config: RecorderConfig, devices: DiscoveredDevice[]): boolean {
+  const browserDevice = (config.browser?.device || '').trim();
+  const micDevice = (config.mic?.device || '').trim();
+  if (!browserDevice || !micDevice) return false;
+  const names = new Set(devices.map(d => d.name.toLowerCase()));
+  if (!names.has(browserDevice.toLowerCase())) return false;
+  if (!names.has(micDevice.toLowerCase())) return false;
+  return true;
+}
+
+export function printNoLoopbackGuidance(): void {
+  console.error('');
+  console.error('No system-audio capture driver detected on this machine.');
+  console.error('');
+  console.error('To capture playback audio (any app), install ONE of:');
+  console.error('');
+  console.error('  Recommended: screen-capture-recorder');
+  console.error('    https://github.com/rdp/screen-capture-recorder-to-video-windows-free');
+  console.error('    Adds a "virtual-audio-capturer" DirectShow device. You keep hearing audio normally.');
+  console.error('');
+  console.error('  Alternative: VB-CABLE');
+  console.error('    https://vb-audio.com/Cable/');
+  console.error('    Routes selected apps to a virtual sink. Requires per-app Windows routing.');
+  console.error('');
+  console.error('After installing (and rebooting if prompted), re-run streamscribe.');
+}
+
+function shouldBackupExistingConfig(targetPath: string, examplePath: string): boolean {
+  if (!existsSync(targetPath)) return false;
+  if (!existsSync(examplePath)) return true;
+  try {
+    const existing = readFileSync(targetPath, 'utf8');
+    const example = readFileSync(examplePath, 'utf8');
+    return existing.trim() !== example.trim();
+  } catch {
+    return true;
+  }
+}
+
+function writePickedConfig(targetPath: string, examplePath: string, current: RecorderConfig, playback: DiscoveredDevice, mic: DiscoveredDevice): void {
+  mkdirSync(dirname(targetPath), { recursive: true });
+  if (shouldBackupExistingConfig(targetPath, examplePath)) {
+    const backupPath = `${targetPath}.bak.${timestampForDate()}`;
+    try { copyFileSync(targetPath, backupPath); console.log(`Backed up existing config to: ${backupPath}`); } catch {}
+  }
+  const next: RecorderConfig = {
+    ...current,
+    monitor: { ...current.monitor, enabled: 'auto' },
+    browser: { ...current.browser, backend: 'dshow', device: playback.name },
+    mic: { ...current.mic, backend: 'dshow', device: mic.name },
+  };
+  writeFileSync(targetPath, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+export interface ResolveZeroConfigOptions {
+  config: RecorderConfig;
+  configPath: string;
+  root: string;
+  force?: boolean;
+}
+
+export interface ResolvedConfig {
+  config: RecorderConfig;
+  configPath: string;
+}
+
+export async function resolveZeroConfig({ config, configPath, root, force }: ResolveZeroConfigOptions): Promise<ResolvedConfig> {
+  const ffmpegPath = config.ffmpegPath || 'ffmpeg';
+  const examplePath = resolve(root, 'recorder.config.example.json');
+  let devices: DiscoveredDevice[] = [];
+  try {
+    devices = await enumerateAudioSources(ffmpegPath);
+  } catch (err) {
+    console.error(`Could not enumerate audio devices via FFmpeg: ${(err as Error).message}`);
+    console.error('Make sure FFmpeg is installed and on PATH, then re-run.');
+    process.exit(1);
+  }
+
+  if (!force && isConfigUsable(config, devices)) return { config, configPath };
+
+  const playback = filterPlaybackSources(devices);
+  const mics = filterMicSources(devices);
+
+  if (playback.length === 0) {
+    printNoLoopbackGuidance();
+    process.exit(1);
+  }
+  if (mics.length === 0) {
+    console.error('No microphones detected. Connect a microphone and re-run.');
+    process.exit(1);
+  }
+
+  if (!process.stdin.isTTY) {
+    console.error('Audio sources are not configured and this is not an interactive terminal.');
+    console.error('Run `streamscribe pick` from a terminal to configure, or edit:');
+    console.error(`  ${userConfigPath()}`);
+    process.exit(1);
+  }
+
+  const result = await runPicker({ playback, mics });
+  if (!result.ok) {
+    if (result.reason === 'cancelled') {
+      console.error('Setup cancelled.');
+      process.exit(1);
+    }
+    if (result.reason === 'no-playback') {
+      printNoLoopbackGuidance();
+      process.exit(1);
+    }
+    if (result.reason === 'no-mic') {
+      console.error('No microphones detected. Connect a microphone and re-run.');
+      process.exit(1);
+    }
+    if (result.reason === 'no-tty') {
+      console.error('Picker requires an interactive terminal.');
+      process.exit(1);
+    }
+    process.exit(1);
+  }
+
+  const writingToExample = resolve(configPath) === resolve(examplePath);
+  const targetPath = writingToExample ? userConfigPath() : configPath;
+  writePickedConfig(targetPath, examplePath, config, result.playback, result.mic);
+  console.log(`\nSaved to: ${targetPath}`);
+  const reloaded = loadConfig(targetPath);
+  return { config: reloaded, configPath: targetPath };
+}
+
 export async function listDevices(ffmpegPath: string): Promise<void> {
+  const caps = await probeIndevs(ffmpegPath);
   console.log('Listing DirectShow audio devices...');
   await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
-  console.log('\nListing WASAPI devices, if this FFmpeg build supports them...');
-  await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'wasapi', '-i', 'dummy']);
+  if (caps.hasWasapi) {
+    console.log('\nListing WASAPI devices...');
+    await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'wasapi', '-i', 'dummy']);
+  } else {
+    console.log('\nWASAPI: not supported by this FFmpeg build (skipping).');
+  }
 }
 
 export function buildMonitorArgs(config: RecorderConfig): string[] {
@@ -246,19 +492,20 @@ export function record(config: RecorderConfig, paths: RuntimePaths): void {
   const outputFile = resolve(outputDir, `recording-${timestampForDate()}.wav`);
   const args = buildFfmpegArgs(config, outputFile);
 
+  const runMonitor = monitorShouldRun(config);
   console.log('Starting recording.');
-  console.log(`Chrome/system playback -> left channel (${config.browser?.backend || 'dshow'}:${config.browser?.device || 'default'})`);
-  console.log(`System microphone   -> right channel (${config.mic?.backend || 'dshow'}:${config.mic?.device || 'default'})`);
-  console.log(`Output file         -> ${outputFile}`);
-  console.log(config.monitor?.enabled !== false ? `Live monitor       -> enabled via ${config.monitor?.ffplayPath || 'ffplay'} (Chrome/system audio only)` : 'Live monitor       -> disabled');
+  console.log(`Playback source -> left channel (${config.browser?.backend || 'dshow'}:${config.browser?.device || 'default'})`);
+  console.log(`Microphone      -> right channel (${config.mic?.backend || 'dshow'}:${config.mic?.device || 'default'})`);
+  console.log(`Output file     -> ${outputFile}`);
+  console.log(runMonitor ? `Live monitor    -> enabled via ${config.monitor?.ffplayPath || 'ffplay'} (playback only)` : 'Live monitor    -> off (you hear audio natively)');
   console.log('Press Ctrl+C, q, or Enter to stop and save.\n');
 
   let monitor: ChildProcess | null = null;
-  if (config.monitor?.enabled !== false) {
+  if (runMonitor) {
     monitor = spawn(config.monitor?.ffplayPath || 'ffplay', buildMonitorArgs(config), { stdio: ['ignore', 'ignore', 'ignore'], windowsHide: true });
     monitor.on('error', err => {
       console.error(`Live monitor failed to start: ${err.message}`);
-      console.error('Recording will continue, but you may not hear Chrome audio live. Make sure ffplay is available on PATH.');
+      console.error('Recording will continue, but you may not hear playback audio live. Make sure ffplay is available on PATH.');
     });
   }
 
@@ -326,9 +573,10 @@ export function record(config: RecorderConfig, paths: RuntimePaths): void {
     } else {
       console.error(`\nFFmpeg exited with code ${code}. The output may be missing or incomplete: ${outputFile}`);
       if (/Could not find audio only device with name/.test(ffmpegStderr) || /Error opening input file audio=/.test(ffmpegStderr)) {
-        console.error('\nDevice not found. Run `bun run devices` and set recorder.config.json to an audio device that actually appears there.');
-        console.error('For Chrome/system playback audio, Windows must expose a loopback/recording device such as Stereo Mix, VB-CABLE CABLE Output, or screen-capture-recorder virtual-audio-capturer.');
-        console.error('Your system microphone should stay as a separate dshow mic device.');
+        console.error('\nA configured audio device was not found. The device may have been unplugged or renamed.');
+        console.error('Re-run with `--pick` to reselect your sources:');
+        console.error('  streamscribe record --pick');
+        console.error('Or `streamscribe pick` to update your saved config.');
       }
       cleanupAndExit(code || 1);
     }
@@ -528,7 +776,7 @@ export function startDeepgramChannel({ config, source, apiKey, onTranscript }: {
 }
 
 export function startLiveMonitor(config: RecorderConfig): ChildProcess | null {
-  if (config.monitor?.enabled === false) return null;
+  if (!monitorShouldRun(config)) return null;
   const monitor = spawn(config.monitor?.ffplayPath || 'ffplay', buildMonitorArgs(config), {
     stdio: ['ignore', 'ignore', config.deepgram?.debug ? 'inherit' : 'ignore'],
     windowsHide: true,
@@ -592,8 +840,9 @@ export function liveTranscribeAndSpeak(config: RecorderConfig): void {
     startDeepgramChannel({ config, source: config.mic || {}, apiKey, onTranscript }),
   ];
 
-  console.log('Live transcription started. Deepgram TTS is disabled; only text is printed here.');
-  if (monitor) console.log('Original browser/system audio monitor is enabled. It plays the CABLE Output source to the Windows default playback device.');
+  console.log('Live transcription started. Transcripts will print below.');
+  if (monitor) console.log('Live monitor is on: playing your loopback source through the Windows default output so you can hear it.');
+  else console.log('Live monitor is off: you already hear audio natively (parallel-tap loopback).');
   console.log('Press q, Enter, or Ctrl+C to stop.\n');
 
   let stopping = false;
@@ -629,9 +878,12 @@ export function liveTranscribeAndSpeak(config: RecorderConfig): void {
 
 export function help(configPath: string, config: RecorderConfig): string {
   return `Usage:
-  streamscribe live                  Start live Deepgram STT text output for both channels
+  streamscribe live                  Start live Deepgram STT (picks sources on first run)
+  streamscribe live --pick           Re-pick sources, then go live
   streamscribe record                Save a stereo WAV recording
-  streamscribe devices               List available audio devices
+  streamscribe record --pick         Re-pick sources, then record
+  streamscribe pick                  Interactive picker — pick playback + mic sources
+  streamscribe devices               List available audio devices (raw FFmpeg dump)
   streamscribe init-config           Create a user config file
   mic-audio-capture live             Backward-compatible alias
   chrome-mic-stt live                Alias installed by the package

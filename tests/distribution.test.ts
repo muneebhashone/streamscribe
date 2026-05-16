@@ -64,7 +64,9 @@ describe('Bun package distribution', () => {
   test('example config ships separately from local user config', () => {
     expect(existsSync(join(root, 'recorder.config.example.json'))).toBe(true);
     const example = readJson('recorder.config.example.json');
-    expect(example.browser.device).toBe('CABLE Output (VB-Audio Virtual Cable)');
+    expect(example.browser.device).toBe('');
+    expect(example.mic.device).toBe('');
+    expect(example.monitor.enabled).toBe('auto');
     expect(example.deepgram.apiKeyEnv).toBe('DEEPGRAM_API_KEY');
   });
 });

@@ -2,3 +2,4 @@ node_modules/
 recordings/
 .env
 *.log
+recorder.config.json.bak.*

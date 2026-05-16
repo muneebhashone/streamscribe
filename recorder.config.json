@@ -3,7 +3,7 @@
   "outputDir": "recordings",
   "sampleRate": 48000,
   "monitor": {
-    "enabled": true,
+    "enabled": "auto",
     "ffplayPath": "ffplay",
     "volume": 100
   },
@@ -27,11 +27,11 @@
     "debug": false
   },
   "browser": {
-    "label": "Chrome / system audio",
+    "label": "System playback (any app)",
     "backend": "dshow",
-    "device": "CABLE Output (VB-Audio Virtual Cable)",
+    "device": "virtual-audio-capturer",
     "channel": "left",
-    "ttsName": "browser"
+    "ttsName": "playback"
   },
   "mic": {
     "label": "System microphone",

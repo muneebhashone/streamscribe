@@ -3,9 +3,15 @@ import {
   buildFfmpegArgs,
   buildLiveCaptureArgs,
   buildMonitorArgs,
+  classifyDevice,
   deepgramListenUrl,
+  filterMicSources,
+  filterPlaybackSources,
   inputArgs,
+  isConfigUsable,
   mergeConfig,
+  monitorShouldRun,
+  parseDshowDevices,
   timestampForDate,
 } from '../src/lib';
 
@@ -17,6 +23,23 @@ const baseConfig = mergeConfig({
   browser: { backend: 'dshow', device: 'CABLE Output (VB-Audio Virtual Cable)', label: 'Browser', ttsName: 'browser' },
   mic: { backend: 'dshow', device: 'Headset Microphone', label: 'Mic', ttsName: 'microphone' },
 });
+
+const SAMPLE_DSHOW_STDERR = `
+[dshow @ 000001b7] DirectShow video devices (some may be both video and audio devices)
+[dshow @ 000001b7]  "Integrated Webcam" (video)
+[dshow @ 000001b7]     Alternative name "@device_pnp_..."
+[dshow @ 000001b7] DirectShow audio devices
+[dshow @ 000001b7]  "Headset Microphone (Plantronics Blackwire 3220 Series)" (audio)
+[dshow @ 000001b7]     Alternative name "@device_cm_..."
+[dshow @ 000001b7]  "Microphone Array (Realtek HD Audio)" (audio)
+[dshow @ 000001b7]     Alternative name "@device_cm_..."
+[dshow @ 000001b7]  "CABLE Output (VB-Audio Virtual Cable)" (audio)
+[dshow @ 000001b7]     Alternative name "@device_cm_..."
+[dshow @ 000001b7]  "virtual-audio-capturer" (audio)
+[dshow @ 000001b7]     Alternative name "@device_sw_..."
+[dshow @ 000001b7]  "Stereo Mix (Realtek HD Audio)" (audio)
+[dshow @ 000001b7]     Alternative name "@device_cm_..."
+`;
 
 describe('inputArgs', () => {
   test('builds DirectShow args with audio= prefix', () => {
@@ -101,10 +124,159 @@ describe('configuration helpers', () => {
     expect(config.deepgram.debug).toBe(true);
     expect(config.deepgram.sttModel).toBe('nova-3');
     expect(config.mic.device).toBe('Custom Mic');
-    expect(config.browser.device).toBe('CABLE Output (VB-Audio Virtual Cable)');
+    expect(config.browser.device).toBe('');
+  });
+
+  test('defaults monitor.enabled to "auto"', () => {
+    expect(mergeConfig().monitor.enabled).toBe('auto');
   });
 
   test('formats timestamps with local date parts', () => {
     expect(timestampForDate(new Date(2026, 4, 17, 1, 2, 3))).toBe('2026-05-17_01-02-03');
+  });
+});
+
+describe('classifyDevice', () => {
+  test('classifies known loopback devices as loopback', () => {
+    expect(classifyDevice('virtual-audio-capturer')).toBe('loopback');
+    expect(classifyDevice('CABLE Output (VB-Audio Virtual Cable)')).toBe('loopback');
+    expect(classifyDevice('Stereo Mix (Realtek HD Audio)')).toBe('loopback');
+    expect(classifyDevice('VoiceMeeter Out B1 (VB-Audio VoiceMeeter)')).toBe('loopback');
+  });
+
+  test('classifies physical mics as mic', () => {
+    expect(classifyDevice('Headset Microphone (Plantronics Blackwire 3220 Series)')).toBe('mic');
+    expect(classifyDevice('Microphone Array (Realtek HD Audio)')).toBe('mic');
+    expect(classifyDevice('Microphone (USB Audio Device)')).toBe('mic');
+  });
+});
+
+describe('parseDshowDevices', () => {
+  test('extracts audio devices from ffmpeg -list_devices stderr', () => {
+    const devices = parseDshowDevices(SAMPLE_DSHOW_STDERR);
+    const names = devices.map(d => d.name);
+    expect(names).toContain('Headset Microphone (Plantronics Blackwire 3220 Series)');
+    expect(names).toContain('Microphone Array (Realtek HD Audio)');
+    expect(names).toContain('CABLE Output (VB-Audio Virtual Cable)');
+    expect(names).toContain('virtual-audio-capturer');
+    expect(names).toContain('Stereo Mix (Realtek HD Audio)');
+    expect(names).not.toContain('Integrated Webcam');
+  });
+
+  test('classifies each parsed device', () => {
+    const devices = parseDshowDevices(SAMPLE_DSHOW_STDERR);
+    const byName = Object.fromEntries(devices.map(d => [d.name, d.kind]));
+    expect(byName['virtual-audio-capturer']).toBe('loopback');
+    expect(byName['CABLE Output (VB-Audio Virtual Cable)']).toBe('loopback');
+    expect(byName['Stereo Mix (Realtek HD Audio)']).toBe('loopback');
+    expect(byName['Headset Microphone (Plantronics Blackwire 3220 Series)']).toBe('mic');
+    expect(byName['Microphone Array (Realtek HD Audio)']).toBe('mic');
+  });
+
+  test('deduplicates repeated device names', () => {
+    const repeated = `${SAMPLE_DSHOW_STDERR}\n[dshow @ x]  "virtual-audio-capturer" (audio)`;
+    const devices = parseDshowDevices(repeated);
+    expect(devices.filter(d => d.name === 'virtual-audio-capturer')).toHaveLength(1);
+  });
+
+  test('returns empty array when no devices in input', () => {
+    expect(parseDshowDevices('no devices here')).toEqual([]);
+  });
+});
+
+describe('filterPlaybackSources / filterMicSources', () => {
+  const devices = parseDshowDevices(SAMPLE_DSHOW_STDERR);
+
+  test('playback filter returns only loopback devices', () => {
+    const names = filterPlaybackSources(devices).map(d => d.name).sort();
+    expect(names).toEqual([
+      'CABLE Output (VB-Audio Virtual Cable)',
+      'Stereo Mix (Realtek HD Audio)',
+      'virtual-audio-capturer',
+    ]);
+  });
+
+  test('mic filter returns only physical mics', () => {
+    const names = filterMicSources(devices).map(d => d.name).sort();
+    expect(names).toEqual([
+      'Headset Microphone (Plantronics Blackwire 3220 Series)',
+      'Microphone Array (Realtek HD Audio)',
+    ]);
+  });
+});
+
+describe('monitorShouldRun', () => {
+  test('explicit false disables monitor regardless of source', () => {
+    const config = mergeConfig({ monitor: { enabled: false }, browser: { device: 'CABLE Output (VB-Audio Virtual Cable)' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('explicit true enables monitor regardless of source', () => {
+    const config = mergeConfig({ monitor: { enabled: true }, browser: { device: 'virtual-audio-capturer' } });
+    expect(monitorShouldRun(config)).toBe(true);
+  });
+
+  test('auto skips monitor for virtual-audio-capturer (parallel tap)', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'dshow', device: 'virtual-audio-capturer' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('auto skips monitor for Stereo Mix (parallel tap)', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'dshow', device: 'Stereo Mix (Realtek HD Audio)' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('auto enables monitor for CABLE Output (exclusive sink)', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'dshow', device: 'CABLE Output (VB-Audio Virtual Cable)' } });
+    expect(monitorShouldRun(config)).toBe(true);
+  });
+
+  test('auto skips monitor for wasapi-loopback backend', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'wasapi-loopback', device: 'Speakers' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+});
+
+describe('isConfigUsable', () => {
+  const devices = parseDshowDevices(SAMPLE_DSHOW_STDERR);
+
+  test('returns true when both devices appear in live enumeration', () => {
+    const config = mergeConfig({
+      browser: { device: 'virtual-audio-capturer' },
+      mic: { device: 'Headset Microphone (Plantronics Blackwire 3220 Series)' },
+    });
+    expect(isConfigUsable(config, devices)).toBe(true);
+  });
+
+  test('returns false when browser.device is empty', () => {
+    const config = mergeConfig({
+      browser: { device: '' },
+      mic: { device: 'Headset Microphone (Plantronics Blackwire 3220 Series)' },
+    });
+    expect(isConfigUsable(config, devices)).toBe(false);
+  });
+
+  test('returns false when mic.device is empty', () => {
+    const config = mergeConfig({
+      browser: { device: 'virtual-audio-capturer' },
+      mic: { device: '' },
+    });
+    expect(isConfigUsable(config, devices)).toBe(false);
+  });
+
+  test('returns false when configured device is not present', () => {
+    const config = mergeConfig({
+      browser: { device: 'NonExistent Device' },
+      mic: { device: 'Headset Microphone (Plantronics Blackwire 3220 Series)' },
+    });
+    expect(isConfigUsable(config, devices)).toBe(false);
+  });
+
+  test('matches device names case-insensitively', () => {
+    const config = mergeConfig({
+      browser: { device: 'VIRTUAL-AUDIO-CAPTURER' },
+      mic: { device: 'headset microphone (plantronics blackwire 3220 series)' },
+    });
+    expect(isConfigUsable(config, devices)).toBe(true);
   });
 });
