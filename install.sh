@@ -55,6 +55,12 @@ remove_streamscribe() {
       fi
     done
   fi
+  # Clear bun's git cache for this package so `bun install -g` refetches
+  # main instead of resolving to a stale commit.
+  bun_cache="${HOME}/.bun/install/cache"
+  if [ -d "$bun_cache" ]; then
+    find "$bun_cache" -maxdepth 1 -type d -name '*streamscribe*' -exec rm -rf {} + 2>/dev/null || true
+  fi
   echo "Removed."
 }
 

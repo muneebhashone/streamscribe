@@ -48,6 +48,13 @@ function Remove-Streamscribe {
       }
     }
   }
+  # Clear bun's git cache for this package so the next `bun install -g`
+  # refetches main instead of resolving to a stale commit.
+  $bunCache = Join-Path $env:USERPROFILE '.bun\install\cache'
+  if (Test-Path $bunCache) {
+    Get-ChildItem -Path $bunCache -Directory -Filter '*streamscribe*' -ErrorAction SilentlyContinue |
+      ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+  }
   Write-Host 'Removed.'
 }
 
@@ -93,9 +100,12 @@ function Ensure-MediaTools {
 
 function Get-LoopbackDrivers {
   if (-not (Test-Command 'ffmpeg')) { return @() }
+  # cmd /c handles the 2>&1 merge at the OS level so PowerShell sees a single
+  # text stream. PS-native `2>&1` on a native command wraps each stderr line as
+  # an ErrorRecord, which silently breaks -match against device names.
   $output = ''
   try {
-    $output = & ffmpeg -hide_banner -list_devices true -f dshow -i dummy 2>&1 | Out-String
+    $output = cmd /c 'ffmpeg -hide_banner -list_devices true -f dshow -i dummy 2>&1' | Out-String
   } catch {
     return @()
   }
