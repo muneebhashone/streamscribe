@@ -55,9 +55,26 @@ streamscribe record --pick     # re-pick sources, then record
 streamscribe pick              # picker only — update saved config
 streamscribe devices           # raw FFmpeg device dump
 streamscribe init-config       # create a user config file
+streamscribe --version         # print the installed StreamScribe version
 ```
 
 `chrome-mic-stt`, `mic-audio-capture`, and `audio-recorder` are aliases for the same CLI.
+
+### Installer flags
+
+Both installers accept `--version` (print installed CLI version and exit) and `--force` (uninstall existing CLI before reinstalling). When piped via `irm | iex` or `curl | sh`, pass them as environment variables instead:
+
+```powershell
+$env:STREAMSCRIBE_VERSION = '1'; irm <url> | iex
+$env:STREAMSCRIBE_FORCE   = '1'; irm <url> | iex
+```
+
+```bash
+STREAMSCRIBE_VERSION=1 curl -fsSL <url> | sh
+STREAMSCRIBE_FORCE=1   curl -fsSL <url> | sh
+```
+
+The Windows installer also probes for a playback capture driver (`virtual-audio-capturer`, `CABLE Output`, `Stereo Mix`, `VoiceMeeter`) after the FFmpeg step. If none is found, it asks `[Y/n]` and installs `screen-capture-recorder` from its latest GitHub release with a UAC prompt and interactive click-through. macOS/Linux installers skip this step (DirectShow is Windows-only).
 
 ## Required Environment
 
@@ -65,7 +82,7 @@ streamscribe init-config       # create a user config file
 - Bun 1.3+
 - FFmpeg and FFplay on PATH
 - Deepgram API key in `DEEPGRAM_API_KEY` for live transcription
-- A playback-capture driver. **Recommended:** screen-capture-recorder (exposes `virtual-audio-capturer`). **Alternative:** VB-CABLE.
+- A playback-capture driver. **Recommended:** screen-capture-recorder (exposes `virtual-audio-capturer`). **Alternative:** VB-CABLE. The Windows one-line installer offers to install screen-capture-recorder automatically when none is detected.
 
 Set the API key in the current shell or a `.env` file in the working directory:
 
@@ -140,16 +157,17 @@ The picker writes back to the same config path that was loaded. If a `recorder.c
 
 When operating for a user:
 
-1. If config does not exist or its devices aren't currently present, the CLI will run the picker. In a non-interactive environment (no TTY) it exits with an error pointing the user at `streamscribe pick`.
-2. If a loopback driver is missing, the CLI prints install instructions. Do not attempt silent installs.
-3. For non-interactive validation, prefer `streamscribe devices`. Do not start `live` unless the user is present (it requires `q`, Enter, or Ctrl+C to stop and an active Deepgram key).
-4. For live mode, set `DEEPGRAM_API_KEY` and run:
+1. Detect whether StreamScribe is installed and at what version with `streamscribe --version` (returns the package version, e.g. `1.1.0`) or `install.ps1 -Version` / `install.sh --version`. Use this before recommending a reinstall.
+2. If config does not exist or its devices aren't currently present, the CLI will run the picker. In a non-interactive environment (no TTY) it exits with an error pointing the user at `streamscribe pick`.
+3. If a loopback driver is missing, the CLI prints install instructions and exits. Do not attempt to install drivers silently from inside the CLI. The Windows installer (`install.ps1`) handles the driver install during setup with an explicit `[Y/n]` consent prompt.
+4. For non-interactive validation, prefer `streamscribe devices`. Do not start `live` unless the user is present (it requires `q`, Enter, or Ctrl+C to stop and an active Deepgram key).
+5. For live mode, set `DEEPGRAM_API_KEY` and run:
 
 ```bash
 streamscribe live
 ```
 
-5. Stop with `q`, Enter, or Ctrl+C.
+6. Stop with `q`, Enter, or Ctrl+C.
 
 ## Recording Mode
 
@@ -180,6 +198,7 @@ Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` under t
 
 ## Verification Checklist
 
+- [ ] `streamscribe --version` prints a semver
 - [ ] `streamscribe help` works
 - [ ] `streamscribe devices` lists DirectShow audio devices
 - [ ] `ffmpeg -version` and `ffplay -version` work

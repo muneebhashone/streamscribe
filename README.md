@@ -30,7 +30,30 @@ Direct Bun install:
 bun install -g git+https://github.com/muneebhashone/streamscribe.git
 ```
 
-The one-line installers check for `ffmpeg` and `ffplay`; when either is missing they try to install FFmpeg with the platform package manager (`brew`, `apt-get`, `dnf`, `yum`, `pacman`, `winget`, or Chocolatey). They also check for `DEEPGRAM_API_KEY`; if it is missing, they prompt for a key and save it for future StreamScribe runs.
+The one-line installers check for `ffmpeg` and `ffplay`; when either is missing they try to install FFmpeg with the platform package manager (`brew`, `apt-get`, `dnf`, `yum`, `pacman`, `winget`, or Chocolatey). They also check for `DEEPGRAM_API_KEY`; if it is missing, they prompt for a key and save it for future StreamScribe runs. **The Windows installer additionally probes for a playback capture driver and offers to install `screen-capture-recorder` for you if none is present** — fresh install to working `streamscribe live` is one command.
+
+### Installer flags
+
+```powershell
+# Print the installed version and exit
+.\install.ps1 -Version
+# or via piped install:
+$env:STREAMSCRIBE_VERSION = '1'; irm <url> | iex
+
+# Force a clean reinstall (uninstall existing CLI first, then install fresh)
+.\install.ps1 -Force
+# or:
+$env:STREAMSCRIBE_FORCE = '1'; irm <url> | iex
+```
+
+```bash
+sh install.sh --version       # print installed version, exit
+sh install.sh --force         # uninstall first, then reinstall
+
+# Or via piped install:
+STREAMSCRIBE_VERSION=1 curl -fsSL <url> | sh
+STREAMSCRIBE_FORCE=1 curl -fsSL <url> | sh
+```
 
 Installed commands:
 
@@ -43,6 +66,7 @@ streamscribe record --pick     # re-pick sources, then record
 streamscribe pick              # picker only — update saved config
 streamscribe devices           # raw FFmpeg device dump
 streamscribe init-config       # create a user config file
+streamscribe --version         # print the installed StreamScribe version
 ```
 
 `chrome-mic-stt`, `mic-audio-capture`, and `audio-recorder` are aliases for the same CLI.
@@ -71,7 +95,7 @@ export DEEPGRAM_API_KEY="your_deepgram_key_here"
 
 ## Playback capture driver
 
-Pick one. The picker offers whichever is installed.
+Pick one. The picker offers whichever is installed. **The Windows one-line installer will offer to install `screen-capture-recorder` for you if it doesn't find any of these.**
 
 - **screen-capture-recorder** (recommended) — `https://github.com/rdp/screen-capture-recorder-to-video-windows-free`
   Adds the `virtual-audio-capturer` DirectShow device. It is a parallel tap on your default render endpoint: it captures whatever any app is playing through your default output, and you keep hearing audio normally. No per-app routing, no FFplay monitor needed.
@@ -79,7 +103,7 @@ Pick one. The picker offers whichever is installed.
   A virtual sink. Requires per-app routing in Windows Settings → Sound → App volume & device preferences (set each app you want captured to `CABLE Input`). The auto monitor logic enables FFplay so you can still hear the routed app.
 - **Stereo Mix** — built into some sound cards. Enable it in Sound Control Panel → Recording → right-click → Show Disabled Devices → Enable.
 
-If no loopback driver is detected, the CLI prints install URLs and exits without launching anything.
+If no loopback driver is detected at runtime, the CLI prints install URLs and exits without launching anything.
 
 ## Quick start
 
@@ -231,9 +255,10 @@ bun src/cli.ts help
 
 Project layout:
 
-- `src/cli.ts` — Bun CLI entrypoint (parses `--pick`, dispatches commands)
+- `src/cli.ts` — Bun CLI entrypoint (parses `--pick` / `--version`, dispatches commands)
 - `src/lib.ts` — typed config, FFmpeg args, Deepgram websocket, device probe/enumeration, picker plumbing, recorder/live logic
 - `src/picker.ts` — interactive readline picker (number entry, zero new deps)
+- `install.sh` / `install.ps1` — one-line installers (FFmpeg + Bun + driver check on Windows + Deepgram key + CLI)
 - `tests/lib.test.ts` — unit tests for parser, classifier, monitor logic, config helpers, FFmpeg arg builders
 - `tests/distribution.test.ts` — package, installer, and skill distribution tests
 - `skills/streamscribe/SKILL.md` — agent skill
@@ -249,5 +274,6 @@ streamscribe record --pick     # re-pick sources, then record
 streamscribe pick              # picker only — update saved config
 streamscribe devices           # raw FFmpeg device dump
 streamscribe init-config       # create a user config file
+streamscribe --version         # print the installed StreamScribe version
 bun run check                  # tests + TypeScript typecheck from a clone
 ```
