@@ -3,6 +3,8 @@ set -eu
 
 REPO="https://github.com/muneebhashone/streamscribe.git"
 PKG="git+${REPO}#main"
+GITHUB_SPEC="github:muneebhashone/streamscribe"
+MAIN_COMMIT_API="https://api.github.com/repos/muneebhashone/streamscribe/commits/main"
 BIN="streamscribe"
 
 FORCE_MODE=0
@@ -57,14 +59,33 @@ uninstall_streamscribe_package() {
   bun remove -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
 }
 
+resolve_streamscribe_package() {
+  sha=""
+  if have git; then
+    sha="$(git ls-remote "$REPO" refs/heads/main 2>/dev/null | awk '{print $1}' || true)"
+  fi
+  if [ -z "$sha" ] && have curl; then
+    sha="$(curl -fsSL "$MAIN_COMMIT_API" 2>/dev/null | sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-f]\{40\}\)".*/\1/p' | head -n 1 || true)"
+  fi
+  case "$sha" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+      printf '%s#%s' "$GITHUB_SPEC" "$sha"
+      ;;
+    *)
+      printf '%s' "$PKG"
+      ;;
+  esac
+}
+
 install_streamscribe_package() {
+  resolved_pkg="$(resolve_streamscribe_package)"
   install_cwd="${TMPDIR:-/tmp}"
   if [ ! -d "$install_cwd" ]; then
     install_cwd="$HOME"
   fi
   (
     cd "$install_cwd"
-    bun install -g --force --no-cache "$PKG"
+    bun install -g --force --no-cache "$resolved_pkg"
   )
 }
 

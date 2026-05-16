@@ -13,6 +13,8 @@ $VersionMode = $Version.IsPresent -or ($env:STREAMSCRIBE_VERSION -eq '1')
 
 $Repo = 'https://github.com/muneebhashone/streamscribe.git'
 $Pkg = "git+$Repo#main"
+$GithubSpec = 'github:muneebhashone/streamscribe'
+$MainCommitApi = 'https://api.github.com/repos/muneebhashone/streamscribe/commits/main'
 $Bin = 'streamscribe'
 
 function Test-Command($Name) {
@@ -51,7 +53,26 @@ function Uninstall-StreamscribePackage {
   try { bun remove -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
 }
 
+function Resolve-StreamscribePackage {
+  $sha = $null
+  if (Test-Command 'git') {
+    try {
+      $line = (& git ls-remote $Repo refs/heads/main 2>$null | Select-Object -First 1)
+      if ($line -match '^([0-9a-f]{40})\s+') { $sha = $Matches[1] }
+    } catch {}
+  }
+  if (-not $sha) {
+    try {
+      $commit = Invoke-RestMethod -Uri $MainCommitApi -UseBasicParsing -Headers @{ 'User-Agent' = 'streamscribe-installer' }
+      if ($commit.sha -match '^[0-9a-f]{40}$') { $sha = $commit.sha }
+    } catch {}
+  }
+  if ($sha) { return "$GithubSpec#$sha" }
+  return $Pkg
+}
+
 function Install-StreamscribePackage {
+  $resolvedPkg = Resolve-StreamscribePackage
   $installCwd = $env:TEMP
   if (-not $installCwd -or -not (Test-Path $installCwd)) {
     $installCwd = $env:USERPROFILE
@@ -59,7 +80,7 @@ function Install-StreamscribePackage {
 
   Push-Location $installCwd
   try {
-    bun install -g --force --no-cache $Pkg
+    bun install -g --force --no-cache $resolvedPkg
     if ($LASTEXITCODE -ne 0) {
       throw "bun install failed with exit code $LASTEXITCODE"
     }

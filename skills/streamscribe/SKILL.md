@@ -41,10 +41,10 @@ irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps
 Direct Bun install:
 
 ```bash
-bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main
+bun install -g --force --no-cache github:muneebhashone/streamscribe#<main-sha>
 ```
 
-Rerun the same one-line installer command any time to update to the latest `main` version. The installers clear StreamScribe's Bun git cache and reinstall the global package without touching saved config or `DEEPGRAM_API_KEY`.
+Rerun the same one-line installer command any time to update to the latest `main` version. The installers resolve `main` to the current commit, clear StreamScribe's Bun git cache, and reinstall the global package without touching saved config or `DEEPGRAM_API_KEY`. Prefer the installers over direct Bun installs because moving git refs can be cached by Bun.
 
 After install, the main commands are:
 

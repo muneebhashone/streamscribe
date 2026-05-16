@@ -27,10 +27,10 @@ irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps
 Direct Bun install:
 
 ```bash
-bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main
+bun install -g --force --no-cache github:muneebhashone/streamscribe#<main-sha>
 ```
 
-Rerun the same one-line installer command any time to update to the latest `main` version. The installers clear StreamScribe's Bun git cache and reinstall the global package without touching your saved config or `DEEPGRAM_API_KEY`.
+Rerun the same one-line installer command any time to update to the latest `main` version. The installers resolve `main` to the current commit, clear StreamScribe's Bun git cache, and reinstall the global package without touching your saved config or `DEEPGRAM_API_KEY`. Prefer the installers over direct Bun installs because moving git refs can be cached by Bun.
 
 The one-line installers check for `ffmpeg` and `ffplay`; when either is missing they try to install FFmpeg with the platform package manager (`brew`, `apt-get`, `dnf`, `yum`, `pacman`, `winget`, or Chocolatey). They also check for `DEEPGRAM_API_KEY`; if it is missing, they prompt for a key and save it for future StreamScribe runs. **The Windows installer additionally probes for a playback capture driver and offers to install `screen-capture-recorder` for you if none is present** — fresh install to working `streamscribe live` is one command.
 

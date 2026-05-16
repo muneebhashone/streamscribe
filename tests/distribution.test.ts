@@ -24,13 +24,19 @@ describe('Bun package distribution', () => {
     const sh = readText('install.sh');
     const ps1 = readText('install.ps1');
 
-    expect(sh).toContain('bun install -g --force --no-cache "$PKG"');
+    expect(sh).toContain('bun install -g --force --no-cache "$resolved_pkg"');
     expect(sh).toContain('install_streamscribe_package');
+    expect(sh).toContain('resolve_streamscribe_package');
+    expect(sh).toContain('github:muneebhashone/streamscribe');
+    expect(sh).toContain('MAIN_COMMIT_API');
     expect(sh).toContain('github.com/muneebhashone/streamscribe');
     expect(sh).toContain('PKG="git+${REPO}#main"');
     expect(sh).toContain('BIN="streamscribe"');
-    expect(ps1).toContain('bun install -g --force --no-cache $Pkg');
+    expect(ps1).toContain('bun install -g --force --no-cache $resolvedPkg');
     expect(ps1).toContain('Install-StreamscribePackage');
+    expect(ps1).toContain('Resolve-StreamscribePackage');
+    expect(ps1).toContain('github:muneebhashone/streamscribe');
+    expect(ps1).toContain('$MainCommitApi');
     expect(ps1).toContain('github.com/muneebhashone/streamscribe');
     expect(ps1).toContain('$Pkg = "git+$Repo#main"');
     expect(ps1).toContain("$Bin = 'streamscribe'");
@@ -169,6 +175,7 @@ describe('agent skill distribution', () => {
     expect(readme).toContain('npx skills add muneebhashone/streamscribe');
     expect(readme).toContain('streamscribe live');
     expect(readme).toContain('Rerun the same one-line installer command any time to update');
-    expect(readme).toContain('bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main');
+    expect(readme).toContain('resolve `main` to the current commit');
+    expect(readme).toContain('bun install -g --force --no-cache github:muneebhashone/streamscribe#<main-sha>');
   });
 });
