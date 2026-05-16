@@ -5,6 +5,24 @@ REPO="https://github.com/muneebhashone/streamscribe.git"
 PKG="git+${REPO}"
 BIN="streamscribe"
 
+FORCE_MODE=0
+VERSION_MODE=0
+
+# Flags can be passed when the script is run directly:
+#   sh install.sh --force
+#   sh install.sh --version
+# Or via env vars when piped via `curl ... | sh`:
+#   STREAMSCRIBE_FORCE=1 curl -fsSL <url> | sh
+#   STREAMSCRIBE_VERSION=1 curl -fsSL <url> | sh
+for arg in "$@"; do
+  case "$arg" in
+    --force|-f) FORCE_MODE=1 ;;
+    --version|-v) VERSION_MODE=1 ;;
+  esac
+done
+if [ "${STREAMSCRIBE_FORCE:-}" = "1" ]; then FORCE_MODE=1; fi
+if [ "${STREAMSCRIBE_VERSION:-}" = "1" ]; then VERSION_MODE=1; fi
+
 have() {
   command -v "$1" >/dev/null 2>&1
 }
@@ -12,6 +30,32 @@ have() {
 shell_quote() {
   # POSIX single-quote escaping for writing env vars to shell profiles.
   printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\''/g")"
+}
+
+get_installed_version() {
+  if ! have streamscribe; then
+    printf ''
+    return
+  fi
+  v="$(streamscribe --version 2>/dev/null | tr -d '\r\n' || true)"
+  case "$v" in
+    ''|*"Unknown command"*) printf '' ;;
+    *) printf '%s' "$v" ;;
+  esac
+}
+
+remove_streamscribe() {
+  echo "Force mode: removing existing streamscribe installation..."
+  bun pm uninstall -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
+  bun_bin="${HOME}/.bun/bin"
+  if [ -d "$bun_bin" ]; then
+    for name in streamscribe mic-audio-capture chrome-mic-stt audio-recorder; do
+      if [ -e "$bun_bin/$name" ] || [ -L "$bun_bin/$name" ]; then
+        rm -f "$bun_bin/$name" 2>/dev/null || true
+      fi
+    done
+  fi
+  echo "Removed."
 }
 
 ensure_bun() {
@@ -116,9 +160,30 @@ ensure_deepgram_key() {
   fi
 }
 
+# --- main flow ---
+
+if [ "$VERSION_MODE" -eq 1 ]; then
+  installed="$(get_installed_version)"
+  if [ -n "$installed" ]; then
+    echo "streamscribe installed: $installed"
+  else
+    echo "streamscribe is not installed."
+  fi
+  exit 0
+fi
+
 ensure_bun
 ensure_media_tools
 ensure_deepgram_key
+
+if [ "$FORCE_MODE" -eq 1 ]; then
+  remove_streamscribe
+fi
+
+existing="$(get_installed_version)"
+if [ -n "$existing" ] && [ "$FORCE_MODE" -ne 1 ]; then
+  echo "streamscribe is already installed (version $existing). Re-running 'bun install -g' to fetch the latest..."
+fi
 
 echo "Installing streamscribe globally with Bun..."
 bun install -g "$PKG"
@@ -126,8 +191,7 @@ bun install -g "$PKG"
 echo
 echo "Installed. Try:"
 echo "  $BIN help"
-echo "  $BIN init-config"
-echo "  $BIN devices"
 echo "  $BIN live"
+echo "  $BIN --version"
 echo
 echo "Requirements: ffmpeg/ffplay on PATH and DEEPGRAM_API_KEY for live mode."

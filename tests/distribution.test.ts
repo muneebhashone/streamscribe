@@ -61,6 +61,40 @@ describe('Bun package distribution', () => {
     expect(ps1).toContain('User');
   });
 
+  test('installers support --force and --version flags', () => {
+    const sh = readText('install.sh');
+    const ps1 = readText('install.ps1');
+
+    expect(sh).toContain('--force');
+    expect(sh).toContain('--version');
+    expect(sh).toContain('FORCE_MODE');
+    expect(sh).toContain('VERSION_MODE');
+    expect(sh).toContain('STREAMSCRIBE_FORCE');
+    expect(sh).toContain('STREAMSCRIBE_VERSION');
+    expect(sh).toContain('remove_streamscribe');
+    expect(sh).toContain('get_installed_version');
+
+    expect(ps1).toContain('[switch]$Force');
+    expect(ps1).toContain('[switch]$Version');
+    expect(ps1).toContain('STREAMSCRIBE_FORCE');
+    expect(ps1).toContain('STREAMSCRIBE_VERSION');
+    expect(ps1).toContain('Remove-Streamscribe');
+    expect(ps1).toContain('Get-InstalledStreamscribeVersion');
+  });
+
+  test('Windows installer probes for a playback capture driver and offers screen-capture-recorder', () => {
+    const ps1 = readText('install.ps1');
+
+    expect(ps1).toContain('Ensure-LoopbackDriver');
+    expect(ps1).toContain('Get-LoopbackDrivers');
+    expect(ps1).toContain('Install-ScreenCaptureRecorder');
+    expect(ps1).toContain('virtual-audio-capturer');
+    expect(ps1).toContain('CABLE Output');
+    expect(ps1).toContain('Stereo Mix');
+    expect(ps1).toContain('rdp/screen-capture-recorder-to-video-windows-free');
+    expect(ps1).toContain('Install screen-capture-recorder now?');
+  });
+
   test('example config ships separately from local user config', () => {
     expect(existsSync(join(root, 'recorder.config.example.json'))).toBe(true);
     const example = readJson('recorder.config.example.json');

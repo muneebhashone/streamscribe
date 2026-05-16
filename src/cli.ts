@@ -1,11 +1,17 @@
 #!/usr/bin/env bun
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { help, initConfig, listDevices, liveTranscribeAndSpeak, loadConfig, record, resolveConfigPath, resolveZeroConfig, userConfigPath } from './lib';
+import { help, initConfig, listDevices, liveTranscribeAndSpeak, loadConfig, readPackageVersion, record, resolveConfigPath, resolveZeroConfig, userConfigPath } from './lib';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, '..');
 const argv = process.argv.slice(2);
+
+if (argv.includes('--version') || argv.includes('-v')) {
+  console.log(readPackageVersion(root));
+  process.exit(0);
+}
+
 const wantsPick = argv.includes('--pick');
 const positional = argv.filter(a => !a.startsWith('-'));
 const command = positional[0] || 'live';

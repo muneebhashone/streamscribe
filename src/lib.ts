@@ -876,6 +876,15 @@ export function liveTranscribeAndSpeak(config: RecorderConfig): void {
   }
 }
 
+export function readPackageVersion(root: string): string {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { version?: string };
+    return pkg.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 export function help(configPath: string, config: RecorderConfig): string {
   return `Usage:
   streamscribe live                  Start live Deepgram STT (picks sources on first run)
@@ -885,6 +894,7 @@ export function help(configPath: string, config: RecorderConfig): string {
   streamscribe pick                  Interactive picker — pick playback + mic sources
   streamscribe devices               List available audio devices (raw FFmpeg dump)
   streamscribe init-config           Create a user config file
+  streamscribe --version             Print the installed StreamScribe version
   mic-audio-capture live             Backward-compatible alias
   chrome-mic-stt live                Alias installed by the package
 

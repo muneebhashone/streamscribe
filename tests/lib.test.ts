@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { resolve } from 'node:path';
 import {
   buildFfmpegArgs,
   buildLiveCaptureArgs,
@@ -12,8 +13,11 @@ import {
   mergeConfig,
   monitorShouldRun,
   parseDshowDevices,
+  readPackageVersion,
   timestampForDate,
 } from '../src/lib';
+
+const projectRoot = resolve(import.meta.dir, '..');
 
 const baseConfig = mergeConfig({
   outputDir: 'recordings',
@@ -108,6 +112,16 @@ describe('Deepgram helpers', () => {
     expect(url.searchParams.get('encoding')).toBe('linear16');
     expect(url.searchParams.get('sample_rate')).toBe('16000');
     expect(url.searchParams.get('language')).toBe('en-US');
+  });
+});
+
+describe('readPackageVersion', () => {
+  test('reads the version from package.json', () => {
+    expect(readPackageVersion(projectRoot)).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  test('returns 0.0.0 when package.json is missing', () => {
+    expect(readPackageVersion('/no/such/dir')).toBe('0.0.0');
   });
 });
 

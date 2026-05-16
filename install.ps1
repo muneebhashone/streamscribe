@@ -1,4 +1,15 @@
+param(
+  [switch]$Force,
+  [switch]$Version
+)
+
 $ErrorActionPreference = 'Stop'
+
+# Flags can also be set via env vars so `irm <url> | iex` users can opt in:
+#   $env:STREAMSCRIBE_FORCE = '1'; irm <url> | iex
+#   $env:STREAMSCRIBE_VERSION = '1'; irm <url> | iex
+$ForceMode = $Force.IsPresent -or ($env:STREAMSCRIBE_FORCE -eq '1')
+$VersionMode = $Version.IsPresent -or ($env:STREAMSCRIBE_VERSION -eq '1')
 
 $Repo = 'https://github.com/muneebhashone/streamscribe.git'
 $Pkg = "git+$Repo"
@@ -8,18 +19,42 @@ function Test-Command($Name) {
   return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-function Ensure-Bun {
-  if (-not (Test-Command 'bun')) {
-    Write-Error "Bun is required but was not found on PATH. Install Bun from https://bun.sh/docs/installation, then rerun this installer."
-  }
-}
-
 function Refresh-ProcessPath {
   $paths = @(
     [Environment]::GetEnvironmentVariable('Path', 'Machine'),
     [Environment]::GetEnvironmentVariable('Path', 'User')
   ) | Where-Object { $_ }
   $env:Path = $paths -join ';'
+}
+
+function Get-InstalledStreamscribeVersion {
+  if (-not (Test-Command 'streamscribe')) { return $null }
+  try {
+    $v = (& streamscribe --version 2>&1 | Out-String).Trim()
+    if ($v -and $v -notmatch 'Unknown command') { return $v }
+  } catch {}
+  return $null
+}
+
+function Remove-Streamscribe {
+  Write-Host 'Force mode: removing existing streamscribe installation...'
+  try { bun pm uninstall -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
+  $bunBin = Join-Path $env:USERPROFILE '.bun\bin'
+  if (Test-Path $bunBin) {
+    foreach ($name in @('streamscribe', 'mic-audio-capture', 'chrome-mic-stt', 'audio-recorder')) {
+      foreach ($ext in @('', '.exe', '.cmd', '.ps1')) {
+        $bin = Join-Path $bunBin "$name$ext"
+        if (Test-Path $bin) { Remove-Item $bin -Force -ErrorAction SilentlyContinue }
+      }
+    }
+  }
+  Write-Host 'Removed.'
+}
+
+function Ensure-Bun {
+  if (-not (Test-Command 'bun')) {
+    Write-Error "Bun is required but was not found on PATH. Install Bun from https://bun.sh/docs/installation, then rerun this installer."
+  }
 }
 
 function Install-FFmpegPackage {
@@ -56,6 +91,85 @@ function Ensure-MediaTools {
   }
 }
 
+function Get-LoopbackDrivers {
+  if (-not (Test-Command 'ffmpeg')) { return @() }
+  $output = ''
+  try {
+    $output = & ffmpeg -hide_banner -list_devices true -f dshow -i dummy 2>&1 | Out-String
+  } catch {
+    return @()
+  }
+  $found = @()
+  if ($output -match 'virtual-audio-capturer') { $found += 'virtual-audio-capturer' }
+  if ($output -match 'CABLE Output') { $found += 'CABLE Output (VB-Audio Virtual Cable)' }
+  if ($output -match 'Stereo Mix') { $found += 'Stereo Mix' }
+  if ($output -match 'VoiceMeeter Out') { $found += 'VoiceMeeter' }
+  return $found
+}
+
+function Get-LatestScreenCaptureRecorderUrl {
+  $fallback = 'https://github.com/rdp/screen-capture-recorder-to-video-windows-free/releases/download/v0.13.3/Setup.Screen.Capturer.Recorder.v0.13.3.exe'
+  try {
+    $api = 'https://api.github.com/repos/rdp/screen-capture-recorder-to-video-windows-free/releases/latest'
+    $rel = Invoke-RestMethod -Uri $api -UseBasicParsing -Headers @{ 'User-Agent' = 'streamscribe-installer' }
+    $asset = $rel.assets | Where-Object { $_.name -like 'Setup*.exe' } | Select-Object -First 1
+    if ($asset) { return $asset.browser_download_url }
+  } catch {}
+  return $fallback
+}
+
+function Install-ScreenCaptureRecorder {
+  $url = Get-LatestScreenCaptureRecorderUrl
+  $installerPath = Join-Path $env:TEMP 'streamscribe-scr-setup.exe'
+  Write-Host "Downloading screen-capture-recorder..."
+  $oldProgress = $ProgressPreference
+  $ProgressPreference = 'SilentlyContinue'
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $installerPath -UseBasicParsing
+  } catch {
+    $ProgressPreference = $oldProgress
+    Write-Warning "Download failed: $($_.Exception.Message)"
+    Write-Warning "Install manually: $url"
+    return
+  }
+  $ProgressPreference = $oldProgress
+  Write-Host "Launching installer. Approve UAC and click through Next/Install/Finish..."
+  try {
+    $proc = Start-Process -FilePath $installerPath -Verb RunAs -Wait -PassThru
+    if ($proc.ExitCode -eq 0) {
+      Write-Host "screen-capture-recorder installed."
+    } else {
+      Write-Warning "Installer exited with code $($proc.ExitCode). You may need to install manually."
+    }
+  } catch {
+    Write-Warning "Installer failed to launch: $($_.Exception.Message)"
+  }
+}
+
+function Ensure-LoopbackDriver {
+  if (-not (Test-Command 'ffmpeg')) {
+    Write-Warning "Skipping playback-driver check (ffmpeg not on PATH)."
+    return
+  }
+  $drivers = @(Get-LoopbackDrivers)
+  if ($drivers.Count -gt 0) {
+    Write-Host "Found playback capture driver(s): $($drivers -join ', ')"
+    return
+  }
+  Write-Host ''
+  Write-Host 'No playback capture driver detected.'
+  Write-Host 'StreamScribe needs one to capture system audio (any app).'
+  Write-Host "Recommended: screen-capture-recorder (adds 'virtual-audio-capturer')."
+  $reply = Read-Host 'Install screen-capture-recorder now? [Y/n]'
+  if ($reply -match '^[Nn]') {
+    Write-Host 'Skipped. Install one manually before using live mode:'
+    Write-Host '  https://github.com/rdp/screen-capture-recorder-to-video-windows-free'
+    Write-Host '  https://vb-audio.com/Cable/'
+    return
+  }
+  Install-ScreenCaptureRecorder
+}
+
 function Save-DeepgramKey($ApiKey) {
   [Environment]::SetEnvironmentVariable('DEEPGRAM_API_KEY', $ApiKey, 'User')
   $env:DEEPGRAM_API_KEY = $ApiKey
@@ -77,9 +191,31 @@ function Ensure-DeepgramKey {
   }
 }
 
+# --- main flow ---
+
+if ($VersionMode) {
+  $installed = Get-InstalledStreamscribeVersion
+  if ($installed) {
+    Write-Host "streamscribe installed: $installed"
+  } else {
+    Write-Host 'streamscribe is not installed.'
+  }
+  exit 0
+}
+
 Ensure-Bun
 Ensure-MediaTools
+Ensure-LoopbackDriver
 Ensure-DeepgramKey
+
+if ($ForceMode) {
+  Remove-Streamscribe
+}
+
+$existing = Get-InstalledStreamscribeVersion
+if ($existing -and -not $ForceMode) {
+  Write-Host "streamscribe is already installed (version $existing). Re-running 'bun install -g' to fetch the latest..."
+}
 
 Write-Host 'Installing streamscribe globally with Bun...'
 bun install -g $Pkg
@@ -87,8 +223,7 @@ bun install -g $Pkg
 Write-Host ''
 Write-Host 'Installed. Try:'
 Write-Host "  $Bin help"
-Write-Host "  $Bin init-config"
-Write-Host "  $Bin devices"
 Write-Host "  $Bin live"
+Write-Host "  $Bin --version"
 Write-Host ''
 Write-Host 'Requirements: ffmpeg/ffplay on PATH and DEEPGRAM_API_KEY for live mode.'
