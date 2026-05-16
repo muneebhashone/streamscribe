@@ -1,0 +1,43 @@
+{
+  "ffmpegPath": "ffmpeg",
+  "outputDir": "recordings",
+  "sampleRate": 48000,
+  "monitor": {
+    "enabled": true,
+    "ffplayPath": "ffplay",
+    "volume": 100
+  },
+  "deepgram": {
+    "apiKeyEnv": "DEEPGRAM_API_KEY",
+    "sttModel": "nova-3",
+    "sttSampleRate": 16000,
+    "language": "en-US",
+    "interimResults": true,
+    "endpointing": 300,
+    "punctuate": true,
+    "smartFormat": true,
+    "printInterim": true,
+    "ttsEnabled": false,
+    "ttsModel": "aura-2-thalia-en",
+    "ttsSampleRate": 24000,
+    "ttsEncoding": "linear16",
+    "ttsContainer": "wav",
+    "speakChannelNames": false,
+    "ffplayPath": "ffplay",
+    "debug": false
+  },
+  "browser": {
+    "label": "Chrome / system audio",
+    "backend": "dshow",
+    "device": "CABLE Output (VB-Audio Virtual Cable)",
+    "channel": "left",
+    "ttsName": "browser"
+  },
+  "mic": {
+    "label": "System microphone",
+    "backend": "dshow",
+    "device": "Headset Microphone (Plantronics Blackwire 3220 Series)",
+    "channel": "right",
+    "ttsName": "microphone"
+  }
+}
