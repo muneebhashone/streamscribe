@@ -24,12 +24,31 @@ describe('Bun package distribution', () => {
     const sh = readText('install.sh');
     const ps1 = readText('install.ps1');
 
-    expect(sh).toContain('bun install -g');
+    expect(sh).toContain('bun install -g --force --no-cache "$PKG"');
     expect(sh).toContain('github.com/muneebhashone/streamscribe');
+    expect(sh).toContain('PKG="git+${REPO}#main"');
     expect(sh).toContain('BIN="streamscribe"');
-    expect(ps1).toContain('bun install -g');
+    expect(ps1).toContain('bun install -g --force --no-cache $Pkg');
     expect(ps1).toContain('github.com/muneebhashone/streamscribe');
+    expect(ps1).toContain('$Pkg = "git+$Repo#main"');
     expect(ps1).toContain("$Bin = 'streamscribe'");
+  });
+
+  test('installers rerun as updates without relying on stale Bun git cache', () => {
+    const sh = readText('install.sh');
+    const ps1 = readText('install.ps1');
+
+    expect(sh).toContain('clear_streamscribe_cache');
+    expect(sh).toContain("uninstall_streamscribe_package");
+    expect(sh).toContain('Updating from main');
+    expect(sh).toContain('-name \'*streamscribe*\'');
+    expect(sh).toContain('-name \'*muneebhashone*\'');
+
+    expect(ps1).toContain('Clear-StreamscribeCache');
+    expect(ps1).toContain('Uninstall-StreamscribePackage');
+    expect(ps1).toContain('Updating from main');
+    expect(ps1).toContain("*streamscribe*");
+    expect(ps1).toContain("*muneebhashone*");
   });
 
   test('installers install or guide FFmpeg and FFplay setup', () => {
@@ -133,5 +152,7 @@ describe('agent skill distribution', () => {
     expect(readme).toContain('https://www.skills.sh/');
     expect(readme).toContain('npx skills add muneebhashone/streamscribe');
     expect(readme).toContain('streamscribe live');
+    expect(readme).toContain('Rerun the same one-line installer command any time to update');
+    expect(readme).toContain('bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main');
   });
 });

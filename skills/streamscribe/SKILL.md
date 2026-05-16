@@ -41,8 +41,10 @@ irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps
 Direct Bun install:
 
 ```bash
-bun install -g git+https://github.com/muneebhashone/streamscribe.git
+bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main
 ```
+
+Rerun the same one-line installer command any time to update to the latest `main` version. The installers clear StreamScribe's Bun git cache and reinstall the global package without touching saved config or `DEEPGRAM_API_KEY`.
 
 After install, the main commands are:
 
@@ -62,7 +64,7 @@ streamscribe --version         # print the installed StreamScribe version
 
 ### Installer flags
 
-Both installers accept `--version` (print installed CLI version and exit) and `--force` (uninstall existing CLI before reinstalling). When piped via `irm | iex` or `curl | sh`, pass them as environment variables instead:
+Both installers accept `--version` (print installed CLI version and exit) and `--force` (clean old bin shims before reinstalling). Normal reruns are enough for updates. When piped via `irm | iex` or `curl | sh`, pass flags as environment variables instead:
 
 ```powershell
 $env:STREAMSCRIBE_VERSION = '1'; irm <url> | iex

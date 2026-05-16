@@ -12,7 +12,7 @@ $ForceMode = $Force.IsPresent -or ($env:STREAMSCRIBE_FORCE -eq '1')
 $VersionMode = $Version.IsPresent -or ($env:STREAMSCRIBE_VERSION -eq '1')
 
 $Repo = 'https://github.com/muneebhashone/streamscribe.git'
-$Pkg = "git+$Repo"
+$Pkg = "git+$Repo#main"
 $Bin = 'streamscribe'
 
 function Test-Command($Name) {
@@ -36,9 +36,24 @@ function Get-InstalledStreamscribeVersion {
   return $null
 }
 
+function Clear-StreamscribeCache {
+  # Bun can reuse cached git package resolutions for global installs. Clear only
+  # StreamScribe-looking cache entries before each install so reruns update.
+  $bunCache = Join-Path $env:USERPROFILE '.bun\install\cache'
+  if (Test-Path $bunCache) {
+    Get-ChildItem -Path $bunCache -Directory -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -like '*streamscribe*' -or $_.Name -like '*muneebhashone*' } |
+      ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+function Uninstall-StreamscribePackage {
+  try { bun pm uninstall -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
+}
+
 function Remove-Streamscribe {
   Write-Host 'Force mode: removing existing streamscribe installation...'
-  try { bun pm uninstall -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
+  Uninstall-StreamscribePackage
   $bunBin = Join-Path $env:USERPROFILE '.bun\bin'
   if (Test-Path $bunBin) {
     foreach ($name in @('streamscribe', 'mic-audio-capture', 'chrome-mic-stt', 'audio-recorder')) {
@@ -48,13 +63,7 @@ function Remove-Streamscribe {
       }
     }
   }
-  # Clear bun's git cache for this package so the next `bun install -g`
-  # refetches main instead of resolving to a stale commit.
-  $bunCache = Join-Path $env:USERPROFILE '.bun\install\cache'
-  if (Test-Path $bunCache) {
-    Get-ChildItem -Path $bunCache -Directory -Filter '*streamscribe*' -ErrorAction SilentlyContinue |
-      ForEach-Object { Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
-  }
+  Clear-StreamscribeCache
   Write-Host 'Removed.'
 }
 
@@ -224,11 +233,13 @@ if ($ForceMode) {
 
 $existing = Get-InstalledStreamscribeVersion
 if ($existing -and -not $ForceMode) {
-  Write-Host "streamscribe is already installed (version $existing). Re-running 'bun install -g' to fetch the latest..."
+  Write-Host "streamscribe is already installed (version $existing). Updating from main..."
+  Uninstall-StreamscribePackage
 }
 
+Clear-StreamscribeCache
 Write-Host 'Installing streamscribe globally with Bun...'
-bun install -g $Pkg
+bun install -g --force --no-cache $Pkg
 
 Write-Host ''
 Write-Host 'Installed. Try:'

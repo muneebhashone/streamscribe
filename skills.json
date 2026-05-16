@@ -5,7 +5,7 @@
     {
       "name": "streamscribe",
       "path": "skills/streamscribe",
-      "description": "Use the streamscribe CLI to transcribe separate Chrome/system and microphone audio streams with Deepgram or record them into a stereo WAV.",
+      "description": "Use or update the streamscribe CLI to transcribe separate Chrome/system and microphone audio streams with Deepgram or record them into a stereo WAV.",
       "agents": ["claude", "codex", "copilot", "cursor", "cline"],
       "install": {
         "curl": "curl -fsSL https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.sh | sh",

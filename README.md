@@ -27,8 +27,10 @@ irm https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.ps
 Direct Bun install:
 
 ```bash
-bun install -g git+https://github.com/muneebhashone/streamscribe.git
+bun install -g --force --no-cache git+https://github.com/muneebhashone/streamscribe.git#main
 ```
+
+Rerun the same one-line installer command any time to update to the latest `main` version. The installers clear StreamScribe's Bun git cache and reinstall the global package without touching your saved config or `DEEPGRAM_API_KEY`.
 
 The one-line installers check for `ffmpeg` and `ffplay`; when either is missing they try to install FFmpeg with the platform package manager (`brew`, `apt-get`, `dnf`, `yum`, `pacman`, `winget`, or Chocolatey). They also check for `DEEPGRAM_API_KEY`; if it is missing, they prompt for a key and save it for future StreamScribe runs. **The Windows installer additionally probes for a playback capture driver and offers to install `screen-capture-recorder` for you if none is present** — fresh install to working `streamscribe live` is one command.
 
@@ -40,7 +42,7 @@ The one-line installers check for `ffmpeg` and `ffplay`; when either is missing 
 # or via piped install:
 $env:STREAMSCRIBE_VERSION = '1'; irm <url> | iex
 
-# Force a clean reinstall (uninstall existing CLI first, then install fresh)
+# Force a clean reinstall, including old bin shims
 .\install.ps1 -Force
 # or:
 $env:STREAMSCRIBE_FORCE = '1'; irm <url> | iex
@@ -48,7 +50,7 @@ $env:STREAMSCRIBE_FORCE = '1'; irm <url> | iex
 
 ```bash
 sh install.sh --version       # print installed version, exit
-sh install.sh --force         # uninstall first, then reinstall
+sh install.sh --force         # clean old bin shims, then reinstall
 
 # Or via piped install:
 STREAMSCRIBE_VERSION=1 curl -fsSL <url> | sh

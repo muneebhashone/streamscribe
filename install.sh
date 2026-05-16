@@ -2,7 +2,7 @@
 set -eu
 
 REPO="https://github.com/muneebhashone/streamscribe.git"
-PKG="git+${REPO}"
+PKG="git+${REPO}#main"
 BIN="streamscribe"
 
 FORCE_MODE=0
@@ -44,9 +44,22 @@ get_installed_version() {
   esac
 }
 
+clear_streamscribe_cache() {
+  # Bun can reuse cached git package resolutions for global installs. Clear only
+  # StreamScribe-looking cache entries before each install so reruns update.
+  bun_cache="${HOME}/.bun/install/cache"
+  if [ -d "$bun_cache" ]; then
+    find "$bun_cache" -maxdepth 1 -type d \( -name '*streamscribe*' -o -name '*muneebhashone*' \) -exec rm -rf {} + 2>/dev/null || true
+  fi
+}
+
+uninstall_streamscribe_package() {
+  bun pm uninstall -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
+}
+
 remove_streamscribe() {
   echo "Force mode: removing existing streamscribe installation..."
-  bun pm uninstall -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
+  uninstall_streamscribe_package
   bun_bin="${HOME}/.bun/bin"
   if [ -d "$bun_bin" ]; then
     for name in streamscribe mic-audio-capture chrome-mic-stt audio-recorder; do
@@ -55,12 +68,7 @@ remove_streamscribe() {
       fi
     done
   fi
-  # Clear bun's git cache for this package so `bun install -g` refetches
-  # main instead of resolving to a stale commit.
-  bun_cache="${HOME}/.bun/install/cache"
-  if [ -d "$bun_cache" ]; then
-    find "$bun_cache" -maxdepth 1 -type d -name '*streamscribe*' -exec rm -rf {} + 2>/dev/null || true
-  fi
+  clear_streamscribe_cache
   echo "Removed."
 }
 
@@ -188,11 +196,13 @@ fi
 
 existing="$(get_installed_version)"
 if [ -n "$existing" ] && [ "$FORCE_MODE" -ne 1 ]; then
-  echo "streamscribe is already installed (version $existing). Re-running 'bun install -g' to fetch the latest..."
+  echo "streamscribe is already installed (version $existing). Updating from main..."
+  uninstall_streamscribe_package
 fi
 
+clear_streamscribe_cache
 echo "Installing streamscribe globally with Bun..."
-bun install -g "$PKG"
+bun install -g --force --no-cache "$PKG"
 
 echo
 echo "Installed. Try:"
