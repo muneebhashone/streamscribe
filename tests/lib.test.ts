@@ -5,6 +5,8 @@ import {
   buildLiveCaptureArgs,
   buildMonitorArgs,
   classifyDevice,
+  createTranscriptPrinter,
+  defaultConfig,
   deepgramListenUrl,
   filterMicSources,
   filterPlaybackSources,
@@ -103,6 +105,10 @@ describe('FFmpeg argument builders', () => {
 });
 
 describe('Deepgram helpers', () => {
+  test('defaults to final transcript printing only', () => {
+    expect(defaultConfig.deepgram.printInterim).toBe(false);
+  });
+
   test('builds a Deepgram STT URL with configured query params', () => {
     const url = new URL(deepgramListenUrl(baseConfig.deepgram));
     expect(url.protocol).toBe('wss:');
@@ -112,6 +118,60 @@ describe('Deepgram helpers', () => {
     expect(url.searchParams.get('encoding')).toBe('linear16');
     expect(url.searchParams.get('sample_rate')).toBe('16000');
     expect(url.searchParams.get('language')).toBe('en-US');
+  });
+});
+
+describe('createTranscriptPrinter', () => {
+  test('prints final transcript lines append-only', () => {
+    const originalLog = console.log;
+    const originalWrite = process.stdout.write;
+    const logs: string[] = [];
+    const writes: string[] = [];
+
+    console.log = (message?: unknown) => { logs.push(String(message)); };
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const print = createTranscriptPrinter();
+      print({ text: 'hello from the call', source: { label: 'Microphone', ttsName: 'microphone' }, isFinal: true });
+    } finally {
+      console.log = originalLog;
+      process.stdout.write = originalWrite;
+    }
+
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/^\[00:00\] \[microphone\] hello from the call$/);
+    expect(writes).toEqual([]);
+  });
+
+  test('still supports explicit interim output', () => {
+    const originalLog = console.log;
+    const originalWrite = process.stdout.write;
+    const logs: string[] = [];
+    const writes: string[] = [];
+
+    console.log = (message?: unknown) => { logs.push(String(message)); };
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      writes.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    try {
+      const print = createTranscriptPrinter();
+      print({ text: 'partial phrase', source: { label: 'Playback', ttsName: 'playback' }, isFinal: false });
+      print({ text: 'partial phrase complete', source: { label: 'Playback', ttsName: 'playback' }, isFinal: true });
+    } finally {
+      console.log = originalLog;
+      process.stdout.write = originalWrite;
+    }
+
+    expect(writes[0]).toMatch(/^\r\[00:00\] \[playback\] partial phrase \.\.\.$/);
+    expect(writes[1]).toMatch(/^\r +\r$/);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatch(/^\[00:00\] \[playback\] partial phrase complete$/);
   });
 });
 

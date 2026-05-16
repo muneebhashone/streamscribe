@@ -92,7 +92,7 @@ export const defaultConfig: RecorderConfig = {
     endpointing: 300,
     punctuate: true,
     smartFormat: true,
-    printInterim: true,
+    printInterim: false,
     ttsEnabled: false,
     ttsModel: 'aura-2-thalia-en',
     ttsSampleRate: 24000,

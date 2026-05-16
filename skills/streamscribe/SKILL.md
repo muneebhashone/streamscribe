@@ -17,7 +17,7 @@ metadata:
 
 `streamscribe` is a Bun + TypeScript terminal app for Windows audio workflows that keep system playback (any app — Chrome, Zoom, Spotify, a game) and a physical microphone on separate channels. It can:
 
-- stream a playback loopback source and a microphone to separate Deepgram live STT websockets and print transcripts in the terminal
+- stream a playback loopback source and a microphone to separate Deepgram live STT websockets and print final transcript lines in the terminal
 - save a stereo WAV recording with playback on the left channel and microphone on the right channel
 - monitor playback back to the user's headphones through FFplay when the loopback source is an exclusive sink (VB-CABLE) — and skip the monitor automatically when the loopback source is a parallel tap (virtual-audio-capturer, Stereo Mix) so the user keeps hearing audio natively
 - run an interactive picker that lists actual capture devices on the machine and saves the selection to user config

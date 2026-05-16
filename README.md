@@ -140,7 +140,7 @@ Saved to: C:\Users\<you>\.config\streamscribe\recorder.config.json
 
 The selection is saved. Subsequent `streamscribe live` runs skip the picker. Use `streamscribe live --pick` or `streamscribe pick` to re-prompt.
 
-Live mode prints transcripts to the terminal as `[time] [playback] text` and `[time] [microphone] text`. Press `q`, `Enter`, or `Ctrl+C` to stop.
+Live mode prints final transcript lines to the terminal as `[time] [playback] text` and `[time] [microphone] text`. Press `q`, `Enter`, or `Ctrl+C` to stop.
 
 Recording mode:
 
@@ -190,7 +190,7 @@ Example config ships as `recorder.config.example.json`:
     "endpointing": 300,
     "punctuate": true,
     "smartFormat": true,
-    "printInterim": true,
+    "printInterim": false,
     "ttsEnabled": false,
     "ttsModel": "aura-2-thalia-en",
     "ttsSampleRate": 24000,
