@@ -48,7 +48,24 @@ function Clear-StreamscribeCache {
 }
 
 function Uninstall-StreamscribePackage {
-  try { bun pm uninstall -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
+  try { bun remove -g '@muneebhashone/streamscribe' 2>&1 | Out-Null } catch {}
+}
+
+function Install-StreamscribePackage {
+  $installCwd = $env:TEMP
+  if (-not $installCwd -or -not (Test-Path $installCwd)) {
+    $installCwd = $env:USERPROFILE
+  }
+
+  Push-Location $installCwd
+  try {
+    bun install -g --force --no-cache $Pkg
+    if ($LASTEXITCODE -ne 0) {
+      throw "bun install failed with exit code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
 }
 
 function Remove-Streamscribe {
@@ -203,7 +220,7 @@ function Ensure-DeepgramKey {
 
   Write-Host 'DEEPGRAM_API_KEY was not found in the environment.'
   $DeepgramApiKeyInput = Read-Host 'Enter your Deepgram API key to save for StreamScribe (leave blank to skip)'
-  if ($DeepgramApiKeyInput.Trim()) {
+  if ($null -ne $DeepgramApiKeyInput -and $DeepgramApiKeyInput.Trim()) {
     Save-DeepgramKey $DeepgramApiKeyInput.Trim()
   } else {
     Write-Host 'Skipped Deepgram API key setup. Set DEEPGRAM_API_KEY before using live mode.'
@@ -239,7 +256,7 @@ if ($existing -and -not $ForceMode) {
 
 Clear-StreamscribeCache
 Write-Host 'Installing streamscribe globally with Bun...'
-bun install -g --force --no-cache $Pkg
+Install-StreamscribePackage
 
 Write-Host ''
 Write-Host 'Installed. Try:'

@@ -25,13 +25,26 @@ describe('Bun package distribution', () => {
     const ps1 = readText('install.ps1');
 
     expect(sh).toContain('bun install -g --force --no-cache "$PKG"');
+    expect(sh).toContain('install_streamscribe_package');
     expect(sh).toContain('github.com/muneebhashone/streamscribe');
     expect(sh).toContain('PKG="git+${REPO}#main"');
     expect(sh).toContain('BIN="streamscribe"');
     expect(ps1).toContain('bun install -g --force --no-cache $Pkg');
+    expect(ps1).toContain('Install-StreamscribePackage');
     expect(ps1).toContain('github.com/muneebhashone/streamscribe');
     expect(ps1).toContain('$Pkg = "git+$Repo#main"');
     expect(ps1).toContain("$Bin = 'streamscribe'");
+  });
+
+  test('installers run Bun global install outside the local package cwd', () => {
+    const sh = readText('install.sh');
+    const ps1 = readText('install.ps1');
+
+    expect(sh).toContain('install_cwd="${TMPDIR:-/tmp}"');
+    expect(sh).toContain('cd "$install_cwd"');
+    expect(ps1).toContain('$installCwd = $env:TEMP');
+    expect(ps1).toContain('Push-Location $installCwd');
+    expect(ps1).toContain('throw "bun install failed with exit code $LASTEXITCODE"');
   });
 
   test('installers rerun as updates without relying on stale Bun git cache', () => {
@@ -40,12 +53,14 @@ describe('Bun package distribution', () => {
 
     expect(sh).toContain('clear_streamscribe_cache');
     expect(sh).toContain("uninstall_streamscribe_package");
+    expect(sh).toContain("bun remove -g '@muneebhashone/streamscribe'");
     expect(sh).toContain('Updating from main');
     expect(sh).toContain('-name \'*streamscribe*\'');
     expect(sh).toContain('-name \'*muneebhashone*\'');
 
     expect(ps1).toContain('Clear-StreamscribeCache');
     expect(ps1).toContain('Uninstall-StreamscribePackage');
+    expect(ps1).toContain("bun remove -g '@muneebhashone/streamscribe'");
     expect(ps1).toContain('Updating from main');
     expect(ps1).toContain("*streamscribe*");
     expect(ps1).toContain("*muneebhashone*");
@@ -76,6 +91,7 @@ describe('Bun package distribution', () => {
     expect(sh).toContain('export DEEPGRAM_API_KEY=');
     expect(ps1).toContain('DEEPGRAM_API_KEY');
     expect(ps1).toContain('Read-Host');
+    expect(ps1).toContain('$null -ne $DeepgramApiKeyInput');
     expect(ps1).toContain('SetEnvironmentVariable');
     expect(ps1).toContain('User');
   });

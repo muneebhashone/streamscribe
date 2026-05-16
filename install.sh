@@ -54,7 +54,18 @@ clear_streamscribe_cache() {
 }
 
 uninstall_streamscribe_package() {
-  bun pm uninstall -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
+  bun remove -g '@muneebhashone/streamscribe' >/dev/null 2>&1 || true
+}
+
+install_streamscribe_package() {
+  install_cwd="${TMPDIR:-/tmp}"
+  if [ ! -d "$install_cwd" ]; then
+    install_cwd="$HOME"
+  fi
+  (
+    cd "$install_cwd"
+    bun install -g --force --no-cache "$PKG"
+  )
 }
 
 remove_streamscribe() {
@@ -202,7 +213,7 @@ fi
 
 clear_streamscribe_cache
 echo "Installing streamscribe globally with Bun..."
-bun install -g --force --no-cache "$PKG"
+install_streamscribe_package
 
 echo
 echo "Installed. Try:"
