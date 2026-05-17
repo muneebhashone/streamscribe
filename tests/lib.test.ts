@@ -1,20 +1,27 @@
 import { describe, expect, test } from 'bun:test';
 import { resolve } from 'node:path';
 import {
+  backendForSource,
   buildFfmpegArgs,
   buildLiveCaptureArgs,
   buildMonitorArgs,
   classifyDevice,
   createTranscriptPrinter,
+  currentPlatform,
   defaultConfig,
   deepgramListenUrl,
   filterMicSources,
   filterPlaybackSources,
+  indevsToCapabilities,
   inputArgs,
   isConfigUsable,
   mergeConfig,
   monitorShouldRun,
+  parseAvfoundationDevices,
   parseDshowDevices,
+  parseIndevsList,
+  parsePulseSources,
+  platformDefaults,
   readPackageVersion,
   timestampForDate,
 } from '../src/lib';
@@ -63,6 +70,53 @@ describe('inputArgs', () => {
   test('rejects unsupported backends', () => {
     expect(() => inputArgs({ backend: 'alsa', device: 'default' })).toThrow('Unsupported backend');
   });
+
+  test('builds AVFoundation args with leading colon for audio-only', () => {
+    expect(inputArgs({ backend: 'avfoundation', device: 'BlackHole 2ch' })).toEqual(['-f', 'avfoundation', '-i', ':BlackHole 2ch']);
+  });
+
+  test('uses :default for AVFoundation default device', () => {
+    expect(inputArgs({ backend: 'avfoundation', device: 'default' })).toEqual(['-f', 'avfoundation', '-i', ':default']);
+    expect(inputArgs({ backend: 'avfoundation', device: '' })).toEqual(['-f', 'avfoundation', '-i', ':default']);
+  });
+
+  test('builds PulseAudio args with raw source name', () => {
+    expect(inputArgs({ backend: 'pulse', device: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor' }))
+      .toEqual(['-f', 'pulse', '-i', 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor']);
+  });
+
+  test('uses "default" for PulseAudio when device is empty', () => {
+    expect(inputArgs({ backend: 'pulse', device: 'default' })).toEqual(['-f', 'pulse', '-i', 'default']);
+    expect(inputArgs({ backend: 'pulse', device: '' })).toEqual(['-f', 'pulse', '-i', 'default']);
+  });
+});
+
+describe('platform defaults', () => {
+  test('currentPlatform maps node platform names to friendly ids', () => {
+    expect(currentPlatform('win32')).toBe('windows');
+    expect(currentPlatform('darwin')).toBe('macos');
+    expect(currentPlatform('linux')).toBe('linux');
+    expect(currentPlatform('freebsd')).toBe('linux');
+  });
+
+  test('platformDefaults returns dshow on Windows', () => {
+    expect(platformDefaults('win32')).toEqual({ id: 'windows', backend: 'dshow', source: 'dshow' });
+  });
+
+  test('platformDefaults returns avfoundation on macOS', () => {
+    expect(platformDefaults('darwin')).toEqual({ id: 'macos', backend: 'avfoundation', source: 'avfoundation' });
+  });
+
+  test('platformDefaults returns pulse on Linux', () => {
+    expect(platformDefaults('linux')).toEqual({ id: 'linux', backend: 'pulse', source: 'pulse' });
+  });
+
+  test('backendForSource maps discovered sources to backends', () => {
+    expect(backendForSource('dshow')).toBe('dshow');
+    expect(backendForSource('avfoundation')).toBe('avfoundation');
+    expect(backendForSource('pulse')).toBe('pulse');
+    expect(backendForSource('wasapi')).toBe('wasapi');
+  });
 });
 
 describe('FFmpeg argument builders', () => {
@@ -100,6 +154,36 @@ describe('FFmpeg argument builders', () => {
       '-f', 'dshow',
       '-i', 'audio=CABLE Output (VB-Audio Virtual Cable)',
       '-af', 'volume=0.5',
+    ]);
+  });
+
+  test('builds monitor args for AVFoundation on macOS', () => {
+    const config = mergeConfig({
+      monitor: { enabled: 'auto', ffplayPath: 'ffplay', volume: 100 },
+      browser: { backend: 'avfoundation', device: 'BlackHole 2ch' },
+    });
+    expect(buildMonitorArgs(config)).toEqual([
+      '-hide_banner',
+      '-nodisp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-f', 'avfoundation',
+      '-i', ':BlackHole 2ch',
+    ]);
+  });
+
+  test('builds monitor args for PulseAudio on Linux', () => {
+    const config = mergeConfig({
+      monitor: { enabled: 'auto', ffplayPath: 'ffplay', volume: 100 },
+      browser: { backend: 'pulse', device: 'alsa_output.foo.monitor' },
+    });
+    expect(buildMonitorArgs(config)).toEqual([
+      '-hide_banner',
+      '-nodisp',
+      '-fflags', 'nobuffer',
+      '-flags', 'low_delay',
+      '-f', 'pulse',
+      '-i', 'alsa_output.foo.monitor',
     ]);
   });
 });
@@ -211,17 +295,32 @@ describe('configuration helpers', () => {
 });
 
 describe('classifyDevice', () => {
-  test('classifies known loopback devices as loopback', () => {
+  test('classifies known Windows loopback devices as loopback', () => {
     expect(classifyDevice('virtual-audio-capturer')).toBe('loopback');
     expect(classifyDevice('CABLE Output (VB-Audio Virtual Cable)')).toBe('loopback');
     expect(classifyDevice('Stereo Mix (Realtek HD Audio)')).toBe('loopback');
     expect(classifyDevice('VoiceMeeter Out B1 (VB-Audio VoiceMeeter)')).toBe('loopback');
   });
 
+  test('classifies known macOS loopback devices as loopback', () => {
+    expect(classifyDevice('BlackHole 2ch')).toBe('loopback');
+    expect(classifyDevice('BlackHole 16ch')).toBe('loopback');
+    expect(classifyDevice('Soundflower (2ch)')).toBe('loopback');
+    expect(classifyDevice('Loopback Audio')).toBe('loopback');
+    expect(classifyDevice('Multi-Output Device')).toBe('loopback');
+  });
+
+  test('classifies PulseAudio monitor sources as loopback', () => {
+    expect(classifyDevice('alsa_output.pci-0000_00_1f.3.analog-stereo.monitor')).toBe('loopback');
+    expect(classifyDevice('Monitor of Built-in Audio Analog Stereo')).toBe('loopback');
+  });
+
   test('classifies physical mics as mic', () => {
     expect(classifyDevice('Headset Microphone (Plantronics Blackwire 3220 Series)')).toBe('mic');
     expect(classifyDevice('Microphone Array (Realtek HD Audio)')).toBe('mic');
     expect(classifyDevice('Microphone (USB Audio Device)')).toBe('mic');
+    expect(classifyDevice('Built-in Microphone')).toBe('mic');
+    expect(classifyDevice('alsa_input.pci-0000_00_1f.3.analog-stereo')).toBe('mic');
   });
 });
 
@@ -255,6 +354,165 @@ describe('parseDshowDevices', () => {
 
   test('returns empty array when no devices in input', () => {
     expect(parseDshowDevices('no devices here')).toEqual([]);
+  });
+});
+
+describe('parseIndevsList (ffmpeg -devices)', () => {
+  test('detects pulse on the real Ubuntu 24.04 + ffmpeg 6.1.1 listing (DE marker, glued)', () => {
+    const real = `Devices:
+ D. = Demuxing supported
+ .E = Muxing supported
+ --
+ DE alsa            ALSA audio output
+ DE fbdev           Linux framebuffer
+ D  iec61883        libiec61883 (new DV1394) A/V input device
+ D  jack            JACK Audio Connection Kit
+ D  kmsgrab         KMS screen capture
+ D  lavfi           Libavfilter virtual input device
+ D  libcdio
+ D  libdc1394       dc1394 v.2 A/V grab
+ D  openal          OpenAL audio capture device
+  E opengl          OpenGL output
+ DE oss             OSS (Open Sound System) playback
+ DE pulse           Pulse audio output
+  E sdl,sdl2        SDL2 output device
+ DE video4linux2,v4l2 Video4Linux2 output device
+ D  x11grab         X11 screen capture, using XCB
+  E xv              XV (XVideo) output device
+`;
+    const indevs = parseIndevsList(real);
+    expect(indevs.has('pulse')).toBe(true);
+    expect(indevs.has('alsa')).toBe(true);
+    expect(indevs.has('lavfi')).toBe(true);
+    expect(indevs.has('opengl')).toBe(false);
+    expect(indevs.has('sdl,sdl2')).toBe(false);
+  });
+
+  test('detects dshow on Windows ffmpeg builds (D  marker)', () => {
+    const text = `
+ D  dshow           DirectShow capture
+ DE lavfi           Libavfilter virtual input device
+  E null            raw null video output
+`;
+    const indevs = parseIndevsList(text);
+    expect(indevs.has('dshow')).toBe(true);
+    expect(indevs.has('lavfi')).toBe(true);
+    expect(indevs.has('null')).toBe(false);
+  });
+
+  test('indevsToCapabilities maps a set into the capability flags', () => {
+    expect(indevsToCapabilities(new Set(['dshow']))).toEqual({ hasDshow: true, hasWasapi: false, hasAvfoundation: false, hasPulse: false });
+    expect(indevsToCapabilities(new Set(['avfoundation']))).toEqual({ hasDshow: false, hasWasapi: false, hasAvfoundation: true, hasPulse: false });
+    expect(indevsToCapabilities(new Set(['pulse']))).toEqual({ hasDshow: false, hasWasapi: false, hasAvfoundation: false, hasPulse: true });
+    expect(indevsToCapabilities(new Set(['dshow', 'wasapi']))).toEqual({ hasDshow: true, hasWasapi: true, hasAvfoundation: false, hasPulse: false });
+  });
+});
+
+describe('parseAvfoundationDevices', () => {
+  const sample = `
+[AVFoundation indev @ 0x7fb31cf04680] AVFoundation video devices:
+[AVFoundation indev @ 0x7fb31cf04680] [0] FaceTime HD Camera (Built-in)
+[AVFoundation indev @ 0x7fb31cf04680] [1] Capture screen 0
+[AVFoundation indev @ 0x7fb31cf04680] AVFoundation audio devices:
+[AVFoundation indev @ 0x7fb31cf04680] [0] Built-in Microphone
+[AVFoundation indev @ 0x7fb31cf04680] [1] BlackHole 2ch
+[AVFoundation indev @ 0x7fb31cf04680] [2] Multi-Output Device
+`;
+
+  test('extracts only audio devices from AVFoundation listing', () => {
+    const devices = parseAvfoundationDevices(sample);
+    const names = devices.map(d => d.name);
+    expect(names).toEqual(['Built-in Microphone', 'BlackHole 2ch', 'Multi-Output Device']);
+    expect(devices.every(d => d.source === 'avfoundation')).toBe(true);
+  });
+
+  test('classifies AVFoundation devices correctly', () => {
+    const devices = parseAvfoundationDevices(sample);
+    const byName = Object.fromEntries(devices.map(d => [d.name, d.kind]));
+    expect(byName['Built-in Microphone']).toBe('mic');
+    expect(byName['BlackHole 2ch']).toBe('loopback');
+    expect(byName['Multi-Output Device']).toBe('loopback');
+  });
+
+  test('returns empty array when no audio header is present', () => {
+    expect(parseAvfoundationDevices('no audio header here')).toEqual([]);
+  });
+});
+
+describe('parsePulseSources', () => {
+  const sample = `
+Auto-detected sources for pulse:
+  alsa_input.pci-0000_00_1f.3.analog-stereo
+  alsa_output.pci-0000_00_1f.3.analog-stereo.monitor
+  bluez_source.AA_BB_CC_DD_EE_FF.headset_head_unit
+`;
+
+  test('extracts source names from ffmpeg -sources pulse output', () => {
+    const devices = parsePulseSources(sample);
+    const names = devices.map(d => d.name);
+    expect(names).toContain('alsa_input.pci-0000_00_1f.3.analog-stereo');
+    expect(names).toContain('alsa_output.pci-0000_00_1f.3.analog-stereo.monitor');
+    expect(names).toContain('bluez_source.AA_BB_CC_DD_EE_FF.headset_head_unit');
+    expect(devices.every(d => d.source === 'pulse')).toBe(true);
+  });
+
+  test('classifies .monitor sources as loopback', () => {
+    const devices = parsePulseSources(sample);
+    const byName = Object.fromEntries(devices.map(d => [d.name, d.kind]));
+    expect(byName['alsa_output.pci-0000_00_1f.3.analog-stereo.monitor']).toBe('loopback');
+    expect(byName['alsa_input.pci-0000_00_1f.3.analog-stereo']).toBe('mic');
+  });
+
+  test('returns empty array when no source header is present', () => {
+    expect(parsePulseSources('no pulse output')).toEqual([]);
+  });
+
+  test('parses ffmpeg marker format with descriptions', () => {
+    const markerFormat = `
+[pulse @ 0x55a98b07eb40] PulseAudio sources:
+  > alsa_input.pci-0000_00_1f.3.analog-stereo [Built-in Audio Analog Stereo]
+  > alsa_output.pci-0000_00_1f.3.analog-stereo.monitor [Monitor of Built-in Audio Analog Stereo]
+  * bluez_source.AA_BB_CC_DD.headset [USB Headset]
+`;
+    const devices = parsePulseSources(markerFormat);
+    const names = devices.map(d => d.name);
+    expect(names).toContain('alsa_input.pci-0000_00_1f.3.analog-stereo');
+    expect(names).toContain('alsa_output.pci-0000_00_1f.3.analog-stereo.monitor');
+    expect(names).toContain('bluez_source.AA_BB_CC_DD.headset');
+    const byName = Object.fromEntries(devices.map(d => [d.name, d.kind]));
+    expect(byName['alsa_output.pci-0000_00_1f.3.analog-stereo.monitor']).toBe('loopback');
+  });
+
+  test('classifies "Monitor of X" descriptions as loopback even if internal name lacks .monitor', () => {
+    const text = `
+Auto-detected sources for pulse:
+  > weird_internal_name [Monitor of Built-in Audio]
+`;
+    const devices = parsePulseSources(text);
+    expect(devices).toHaveLength(1);
+    expect(devices[0]?.kind).toBe('loopback');
+  });
+
+  test('skips the "default" alias to avoid double-listing', () => {
+    const text = `
+Auto-detected sources for pulse:
+  * default
+  > alsa_input.foo
+`;
+    const devices = parsePulseSources(text);
+    expect(devices.map(d => d.name)).toEqual(['alsa_input.foo']);
+  });
+
+  test('parses real ffmpeg 6.x output with trailing (none) annotation (captured on Ubuntu 24.04 + WSLg pulse)', () => {
+    const real = `Auto-detected sources for pulse:
+  RDPSink.monitor [Monitor of RDP Sink] (none)
+* RDPSource [RDP Source] (none)
+`;
+    const devices = parsePulseSources(real);
+    expect(devices.map(d => d.name)).toEqual(['RDPSink.monitor', 'RDPSource']);
+    const byName = Object.fromEntries(devices.map(d => [d.name, d.kind]));
+    expect(byName['RDPSink.monitor']).toBe('loopback');
+    expect(byName['RDPSource']).toBe('mic');
   });
 });
 
@@ -308,6 +566,26 @@ describe('monitorShouldRun', () => {
   test('auto skips monitor for wasapi-loopback backend', () => {
     const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'wasapi-loopback', device: 'Speakers' } });
     expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('auto skips monitor for pulse backend (PulseAudio plays back via monitor parallel-tap)', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'pulse', device: 'alsa_output.pci-0000_00_1f.3.analog-stereo.monitor' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('auto skips monitor for .monitor source even on other backends', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'dshow', device: 'alsa_output.foo.monitor' } });
+    expect(monitorShouldRun(config)).toBe(false);
+  });
+
+  test('auto enables monitor for BlackHole on macOS (exclusive sink)', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'avfoundation', device: 'BlackHole 2ch' } });
+    expect(monitorShouldRun(config)).toBe(true);
+  });
+
+  test('auto enables monitor for Multi-Output Device on macOS', () => {
+    const config = mergeConfig({ monitor: { enabled: 'auto' }, browser: { backend: 'avfoundation', device: 'Multi-Output Device' } });
+    expect(monitorShouldRun(config)).toBe(true);
   });
 });
 

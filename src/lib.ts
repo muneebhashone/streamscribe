@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, resolve } from 'node:path';
 import { runPicker } from './picker';
 
-export type AudioBackend = 'dshow' | 'wasapi' | 'wasapi-loopback';
+export type AudioBackend = 'dshow' | 'wasapi' | 'wasapi-loopback' | 'avfoundation' | 'pulse';
 
 export interface AudioSourceConfig {
   label?: string;
@@ -23,16 +23,40 @@ export interface MonitorConfig {
 }
 
 export type AudioDeviceKind = 'loopback' | 'mic';
+export type DeviceSource = 'dshow' | 'wasapi' | 'avfoundation' | 'pulse';
 
 export interface DiscoveredDevice {
   name: string;
   kind: AudioDeviceKind;
-  source: 'dshow' | 'wasapi';
+  source: DeviceSource;
 }
 
 export interface FfmpegCapabilities {
   hasDshow: boolean;
   hasWasapi: boolean;
+  hasAvfoundation: boolean;
+  hasPulse: boolean;
+}
+
+export type PlatformId = 'windows' | 'macos' | 'linux';
+
+export interface PlatformDefaults {
+  id: PlatformId;
+  backend: AudioBackend;
+  source: DeviceSource;
+}
+
+export function currentPlatform(platform: NodeJS.Platform = process.platform): PlatformId {
+  if (platform === 'win32') return 'windows';
+  if (platform === 'darwin') return 'macos';
+  return 'linux';
+}
+
+export function platformDefaults(platform: NodeJS.Platform = process.platform): PlatformDefaults {
+  const id = currentPlatform(platform);
+  if (id === 'windows') return { id, backend: 'dshow', source: 'dshow' };
+  if (id === 'macos') return { id, backend: 'avfoundation', source: 'avfoundation' };
+  return { id, backend: 'pulse', source: 'pulse' };
 }
 
 export interface DeepgramConfig {
@@ -177,14 +201,16 @@ export function quoteDeviceName(device?: string): string {
 }
 
 export function inputArgs(source: AudioSourceConfig): string[] {
-  const backend = source.backend || 'dshow';
+  const backend = source.backend || platformDefaults().backend;
   const device = quoteDeviceName(source.device || 'default');
 
   if (backend === 'wasapi-loopback') return ['-f', 'wasapi', '-loopback', '1', '-i', device];
   if (backend === 'wasapi') return ['-f', 'wasapi', '-i', device];
   if (backend === 'dshow') return ['-f', 'dshow', '-i', device === 'default' ? 'audio=default' : `audio=${device}`];
+  if (backend === 'avfoundation') return ['-f', 'avfoundation', '-i', device === 'default' ? ':default' : `:${device}`];
+  if (backend === 'pulse') return ['-f', 'pulse', '-i', device];
 
-  throw new Error(`Unsupported backend "${backend}". Use dshow, wasapi, or wasapi-loopback.`);
+  throw new Error(`Unsupported backend "${backend}". Use dshow, wasapi, wasapi-loopback, avfoundation, or pulse.`);
 }
 
 export function runPassthrough(command: string, args: string[]): Promise<void> {
@@ -223,30 +249,43 @@ export function captureFfmpegOutput(command: string, args: string[], timeoutMs =
   });
 }
 
-const LOOPBACK_DEVICE_PATTERN = /(virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder)/i;
-const OBVIOUS_NON_MIC_PATTERN = /(output|loopback|virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder)/i;
+const LOOPBACK_DEVICE_PATTERN = /(virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder|BlackHole|Soundflower|Loopback Audio|Multi-Output Device|\.monitor$|Monitor of )/i;
+const OBVIOUS_NON_MIC_PATTERN = /(output|loopback|virtual-audio-capturer|CABLE Output|Stereo Mix|VoiceMeeter Out|screen-capture-recorder|BlackHole|Soundflower|Loopback Audio|Multi-Output Device|\.monitor$|Monitor of )/i;
 const DSHOW_DEVICE_LINE = /^\[dshow @ [^\]]+\]\s+"([^"]+)"\s+\((audio|video|none)\)\s*$/gm;
-const INDEV_LINE = /^\s*D\s+(\S+)/;
+const AVFOUNDATION_AUDIO_HEADER = /AVFoundation audio devices/i;
+const AVFOUNDATION_DEVICE_LINE = /^\s*\[AVFoundation[^\]]*\]\s*\[(\d+)\]\s*(.+?)\s*$/i;
+const PULSE_SOURCE_LINE = /^\s*[\*>]?\s*([^\s\[]+)(?:\s+\[([^\]]*)\])?(?:\s+.*)?$/;
+const INDEV_LINE = /^\s*D[E\s.]\s*(\S+)/;
 
 export function classifyDevice(name: string): AudioDeviceKind {
   if (LOOPBACK_DEVICE_PATTERN.test(name)) return 'loopback';
   return 'mic';
 }
 
-export async function probeIndevs(ffmpegPath: string): Promise<FfmpegCapabilities> {
-  const cached = (globalThis as Record<string, unknown>).__streamscribeIndevs as FfmpegCapabilities | undefined;
-  if (cached) return cached;
-  const { stdout, stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-devices']);
-  const text = `${stdout}\n${stderr}`;
+export function parseIndevsList(text: string): Set<string> {
   const indevs = new Set<string>();
   for (const line of text.split(/\r?\n/)) {
     const m = INDEV_LINE.exec(line);
     if (m && m[1]) indevs.add(m[1]);
   }
-  const caps: FfmpegCapabilities = {
+  return indevs;
+}
+
+export function indevsToCapabilities(indevs: Set<string>): FfmpegCapabilities {
+  return {
     hasDshow: indevs.has('dshow'),
     hasWasapi: indevs.has('wasapi'),
+    hasAvfoundation: indevs.has('avfoundation'),
+    hasPulse: indevs.has('pulse'),
   };
+}
+
+export async function probeIndevs(ffmpegPath: string): Promise<FfmpegCapabilities> {
+  const cached = (globalThis as Record<string, unknown>).__streamscribeIndevs as FfmpegCapabilities | undefined;
+  if (cached) return cached;
+  const { stdout, stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-devices']);
+  const indevs = parseIndevsList(`${stdout}\n${stderr}`);
+  const caps = indevsToCapabilities(indevs);
   (globalThis as Record<string, unknown>).__streamscribeIndevs = caps;
   return caps;
 }
@@ -266,12 +305,64 @@ export function parseDshowDevices(stderr: string): DiscoveredDevice[] {
   return devices;
 }
 
+export function parseAvfoundationDevices(stderr: string): DiscoveredDevice[] {
+  const devices: DiscoveredDevice[] = [];
+  const seen = new Set<string>();
+  let inAudioSection = false;
+  for (const rawLine of stderr.split(/\r?\n/)) {
+    if (AVFOUNDATION_AUDIO_HEADER.test(rawLine)) { inAudioSection = true; continue; }
+    if (!inAudioSection) continue;
+    if (/AVFoundation video devices/i.test(rawLine)) { inAudioSection = false; continue; }
+    const match = AVFOUNDATION_DEVICE_LINE.exec(rawLine);
+    if (!match) continue;
+    const name = match[2]?.trim();
+    if (!name) continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    devices.push({ name, kind: classifyDevice(name), source: 'avfoundation' });
+  }
+  return devices;
+}
+
+export function parsePulseSources(text: string): DiscoveredDevice[] {
+  const devices: DiscoveredDevice[] = [];
+  const seen = new Set<string>();
+  let inSourcesSection = false;
+  for (const rawLine of text.split(/\r?\n/)) {
+    if (/Auto-detected sources for pulse|PulseAudio sources/i.test(rawLine)) { inSourcesSection = true; continue; }
+    if (!inSourcesSection) continue;
+    if (!rawLine.trim()) continue;
+    if (/^\S/.test(rawLine) && !/^[\*>]/.test(rawLine.trim())) {
+      inSourcesSection = false;
+      continue;
+    }
+    const match = PULSE_SOURCE_LINE.exec(rawLine);
+    if (!match) continue;
+    const name = match[1]?.trim();
+    if (!name || name === 'default') continue;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const description = match[2]?.trim();
+    const classifiedName = description || name;
+    devices.push({ name, kind: classifyDevice(classifiedName) === 'loopback' || classifyDevice(name) === 'loopback' ? 'loopback' : 'mic', source: 'pulse' });
+  }
+  return devices;
+}
+
 export async function enumerateAudioSources(ffmpegPath: string): Promise<DiscoveredDevice[]> {
   const caps = await probeIndevs(ffmpegPath);
   const devices: DiscoveredDevice[] = [];
   if (caps.hasDshow) {
     const { stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
     devices.push(...parseDshowDevices(stderr));
+  }
+  if (caps.hasAvfoundation) {
+    const { stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
+    devices.push(...parseAvfoundationDevices(stderr));
+  }
+  if (caps.hasPulse) {
+    const { stdout, stderr } = await captureFfmpegOutput(ffmpegPath, ['-hide_banner', '-sources', 'pulse']);
+    devices.push(...parsePulseSources(`${stdout}\n${stderr}`));
   }
   return devices;
 }
@@ -290,9 +381,12 @@ export function monitorShouldRun(config: RecorderConfig): boolean {
   if (enabled === true) return true;
   const backend = config.browser?.backend;
   if (backend === 'wasapi-loopback') return false;
+  if (backend === 'pulse') return false;
   const device = config.browser?.device || '';
   if (/virtual-audio-capturer|Stereo Mix|VoiceMeeter Out|screen-capture-recorder/i.test(device)) return false;
+  if (/\.monitor$|Monitor of /i.test(device)) return false;
   if (/CABLE Output/i.test(device)) return true;
+  if (/BlackHole|Soundflower|Loopback Audio|Multi-Output Device/i.test(device)) return true;
   return true;
 }
 
@@ -306,21 +400,55 @@ export function isConfigUsable(config: RecorderConfig, devices: DiscoveredDevice
   return true;
 }
 
-export function printNoLoopbackGuidance(): void {
+export function printNoLoopbackGuidance(platform: PlatformId = currentPlatform()): void {
   console.error('');
-  console.error('No system-audio capture driver detected on this machine.');
+  console.error('No system-audio capture source detected on this machine.');
   console.error('');
-  console.error('To capture playback audio (any app), install ONE of:');
+  if (platform === 'windows') {
+    console.error('To capture playback audio (any app), install ONE of:');
+    console.error('');
+    console.error('  Recommended: screen-capture-recorder');
+    console.error('    https://github.com/rdp/screen-capture-recorder-to-video-windows-free');
+    console.error('    Adds a "virtual-audio-capturer" DirectShow device. You keep hearing audio normally.');
+    console.error('');
+    console.error('  Alternative: VB-CABLE');
+    console.error('    https://vb-audio.com/Cable/');
+    console.error('    Routes selected apps to a virtual sink. Requires per-app Windows routing.');
+    console.error('');
+    console.error('After installing (and rebooting if prompted), re-run streamscribe.');
+    return;
+  }
+  if (platform === 'macos') {
+    console.error('macOS has no built-in system-audio loopback. Install a virtual audio driver:');
+    console.error('');
+    console.error('  Recommended: BlackHole 2ch (free, open source)');
+    console.error('    brew install blackhole-2ch');
+    console.error('    Manual: https://existential.audio/blackhole/');
+    console.error('');
+    console.error('  Alternative: Loopback by Rogue Amoeba');
+    console.error('    https://rogueamoeba.com/loopback/');
+    console.error('');
+    console.error('After installing, create a Multi-Output Device in Audio MIDI Setup');
+    console.error('so you can both capture and hear audio. See:');
+    console.error('  https://github.com/ExistentialAudio/BlackHole/wiki/Multi-Output-Device');
+    console.error('Then re-run streamscribe.');
+    return;
+  }
+  console.error('Linux uses PulseAudio monitor sources for loopback. Make sure PulseAudio (or');
+  console.error('PipeWire with PulseAudio compatibility) is running, then verify with:');
   console.error('');
-  console.error('  Recommended: screen-capture-recorder');
-  console.error('    https://github.com/rdp/screen-capture-recorder-to-video-windows-free');
-  console.error('    Adds a "virtual-audio-capturer" DirectShow device. You keep hearing audio normally.');
+  console.error('  pactl list sources short | grep monitor');
   console.error('');
-  console.error('  Alternative: VB-CABLE');
-  console.error('    https://vb-audio.com/Cable/');
-  console.error('    Routes selected apps to a virtual sink. Requires per-app Windows routing.');
+  console.error('Install PulseAudio on common distros:');
+  console.error('  Ubuntu/Debian: sudo apt-get install -y pulseaudio');
+  console.error('  Fedora:        sudo dnf install -y pulseaudio');
+  console.error('  Arch:          sudo pacman -Sy --noconfirm pulseaudio');
   console.error('');
-  console.error('After installing (and rebooting if prompted), re-run streamscribe.');
+  console.error('If you use PipeWire, install the Pulse compat layer:');
+  console.error('  Ubuntu/Debian: sudo apt-get install -y pipewire-pulse');
+  console.error('  Fedora:        sudo dnf install -y pipewire-pulseaudio');
+  console.error('');
+  console.error('After installing, re-run streamscribe.');
 }
 
 function shouldBackupExistingConfig(targetPath: string, examplePath: string): boolean {
@@ -335,6 +463,13 @@ function shouldBackupExistingConfig(targetPath: string, examplePath: string): bo
   }
 }
 
+export function backendForSource(source: DeviceSource): AudioBackend {
+  if (source === 'avfoundation') return 'avfoundation';
+  if (source === 'pulse') return 'pulse';
+  if (source === 'wasapi') return 'wasapi';
+  return 'dshow';
+}
+
 function writePickedConfig(targetPath: string, examplePath: string, current: RecorderConfig, playback: DiscoveredDevice, mic: DiscoveredDevice): void {
   mkdirSync(dirname(targetPath), { recursive: true });
   if (shouldBackupExistingConfig(targetPath, examplePath)) {
@@ -344,8 +479,8 @@ function writePickedConfig(targetPath: string, examplePath: string, current: Rec
   const next: RecorderConfig = {
     ...current,
     monitor: { ...current.monitor, enabled: 'auto' },
-    browser: { ...current.browser, backend: 'dshow', device: playback.name },
-    mic: { ...current.mic, backend: 'dshow', device: mic.name },
+    browser: { ...current.browser, backend: backendForSource(playback.source), device: playback.name },
+    mic: { ...current.mic, backend: backendForSource(mic.source), device: mic.name },
   };
   writeFileSync(targetPath, `${JSON.stringify(next, null, 2)}\n`);
 }
@@ -365,6 +500,7 @@ export interface ResolvedConfig {
 export async function resolveZeroConfig({ config, configPath, root, force }: ResolveZeroConfigOptions): Promise<ResolvedConfig> {
   const ffmpegPath = config.ffmpegPath || 'ffmpeg';
   const examplePath = resolve(root, 'recorder.config.example.json');
+  const platform = currentPlatform();
   let devices: DiscoveredDevice[] = [];
   try {
     devices = await enumerateAudioSources(ffmpegPath);
@@ -380,7 +516,7 @@ export async function resolveZeroConfig({ config, configPath, root, force }: Res
   const mics = filterMicSources(devices);
 
   if (playback.length === 0) {
-    printNoLoopbackGuidance();
+    printNoLoopbackGuidance(platform);
     process.exit(1);
   }
   if (mics.length === 0) {
@@ -402,7 +538,7 @@ export async function resolveZeroConfig({ config, configPath, root, force }: Res
       process.exit(1);
     }
     if (result.reason === 'no-playback') {
-      printNoLoopbackGuidance();
+      printNoLoopbackGuidance(platform);
       process.exit(1);
     }
     if (result.reason === 'no-mic') {
@@ -426,28 +562,40 @@ export async function resolveZeroConfig({ config, configPath, root, force }: Res
 
 export async function listDevices(ffmpegPath: string): Promise<void> {
   const caps = await probeIndevs(ffmpegPath);
-  console.log('Listing DirectShow audio devices...');
-  await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+  let listedAny = false;
+  if (caps.hasDshow) {
+    console.log('Listing DirectShow audio devices...');
+    await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'dshow', '-i', 'dummy']);
+    listedAny = true;
+  }
+  if (caps.hasAvfoundation) {
+    if (listedAny) console.log('');
+    console.log('Listing AVFoundation audio devices...');
+    await runPassthrough(ffmpegPath, ['-hide_banner', '-f', 'avfoundation', '-list_devices', 'true', '-i', '']);
+    listedAny = true;
+  }
+  if (caps.hasPulse) {
+    if (listedAny) console.log('');
+    console.log('Listing PulseAudio sources...');
+    await runPassthrough(ffmpegPath, ['-hide_banner', '-sources', 'pulse']);
+    listedAny = true;
+  }
   if (caps.hasWasapi) {
-    console.log('\nListing WASAPI devices...');
+    if (listedAny) console.log('');
+    console.log('Listing WASAPI devices...');
     await runPassthrough(ffmpegPath, ['-hide_banner', '-list_devices', 'true', '-f', 'wasapi', '-i', 'dummy']);
-  } else {
-    console.log('\nWASAPI: not supported by this FFmpeg build (skipping).');
+    listedAny = true;
+  }
+  if (!listedAny) {
+    console.log('No supported audio input devices detected by this FFmpeg build.');
+    console.log('Supported indevs: dshow (Windows), avfoundation (macOS), pulse (Linux).');
   }
 }
 
 export function buildMonitorArgs(config: RecorderConfig): string[] {
   const browser = config.browser || {};
   const monitor = config.monitor || defaultConfig.monitor;
-  const args = [
-    '-hide_banner',
-    '-nodisp',
-    '-fflags', 'nobuffer',
-    '-flags', 'low_delay',
-    '-f', 'dshow',
-    '-i', `audio=${browser.device || 'default'}`,
-  ];
-
+  const args = ['-hide_banner', '-nodisp', '-fflags', 'nobuffer', '-flags', 'low_delay', ...inputArgs(browser)];
   if (monitor.volume && Number(monitor.volume) !== 100) args.push('-af', `volume=${Number(monitor.volume) / 100}`);
   return args;
 }

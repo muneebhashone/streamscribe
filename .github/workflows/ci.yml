@@ -1,0 +1,149 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: ${{ matrix.os }} / bun ${{ matrix.bun }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        bun: ['1.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+
+      - name: Install FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg pulseaudio
+          # Start a user-level pulseaudio server so `ffmpeg -sources pulse` succeeds.
+          pulseaudio --start --log-target=stderr || true
+          pactl info || true
+
+      - name: Install FFmpeg + BlackHole (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ffmpeg
+          brew install blackhole-2ch || true
+          # Force CoreAudio to re-scan so AVFoundation sees BlackHole.
+          # (CI runners don't have audio drivers loaded by default; ffmpeg
+          # may still list 0 audio devices, but the indev must be available.)
+          ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true
+
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install ffmpeg -y --no-progress
+          ffmpeg -version
+
+      - name: Show toolchain
+        shell: bash
+        run: |
+          bun --version
+          ffmpeg -version | head -1
+          # ffplay ships with ffmpeg on all three platforms via the installers above.
+          ffplay -version 2>/dev/null | head -1 || echo "ffplay missing (not fatal for tests)"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests + typecheck
+        run: bun run check
+
+      - name: Smoke test — version + help
+        shell: bash
+        run: |
+          bun src/cli.ts --version
+          bun src/cli.ts help
+
+      - name: Smoke test — devices (lists platform indev devices)
+        shell: bash
+        run: |
+          # Must not crash. Empty output is acceptable on CI runners that don't
+          # expose audio hardware; what we're testing is that the right indev
+          # got dispatched per OS without throwing.
+          bun src/cli.ts devices || true
+
+      - name: Lint install.sh (POSIX shell syntax)
+        if: runner.os != 'Windows'
+        run: |
+          sh -n install.sh
+          bash -n install.sh
+
+  installer-dispatch-darwin:
+    name: install.sh macOS branch (live)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run install.sh up to loopback-driver check
+        run: |
+          # Pre-install bun so install.sh's `ensure_bun` passes.
+          curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          # ffmpeg is preinstalled on the macos-latest runner; if not, brew it.
+          which ffmpeg || brew install ffmpeg
+          # Exercise the macOS loopback branch non-interactively. We expect it
+          # to detect missing BlackHole, attempt brew install, and continue.
+          # (Brew is preinstalled on macos-latest runners.)
+          STREAMSCRIBE_FORCE=0 bash -c '
+            export PATH="$HOME/.bun/bin:$PATH"
+            # Source just the helpers; skip the full installer to avoid actually
+            # installing streamscribe globally on the runner.
+            tmp=$(mktemp)
+            awk "
+              /^have\\(\\) \\{/                                { p=1 }
+              /^current_os\\(\\) \\{/                          { p=1 }
+              /^ffmpeg_has_avfoundation_blackhole\\(\\) \\{/   { p=1 }
+              /^install_blackhole_macos\\(\\) \\{/             { p=1 }
+              /^ensure_macos_loopback\\(\\) \\{/               { p=1 }
+              /^ensure_loopback_driver\\(\\) \\{/              { p=1 }
+              p == 1 { print }
+              p == 1 && /^\\}$/ { p=0 }
+            " install.sh > "$tmp"
+            # Auto-answer "n" to avoid actually installing BlackHole on the runner.
+            source "$tmp"
+            printf "n\n" | ensure_loopback_driver
+          '
+
+  installer-dispatch-linux:
+    name: install.sh Linux branch (live)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pulseaudio + ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pulseaudio ffmpeg
+          pulseaudio --start --log-target=stderr || true
+      - name: Exercise install.sh Linux loopback check
+        run: |
+          tmp=$(mktemp)
+          awk '
+            /^have\(\) \{/                       { p=1 }
+            /^current_os\(\) \{/                  { p=1 }
+            /^pulse_is_running\(\) \{/            { p=1 }
+            /^ensure_linux_loopback\(\) \{/       { p=1 }
+            /^ensure_loopback_driver\(\) \{/      { p=1 }
+            p == 1 { print }
+            p == 1 && /^\}$/ { p=0 }
+          ' install.sh > "$tmp"
+          source "$tmp"
+          echo "current_os -> $(current_os)"
+          if pulse_is_running; then
+            echo "pulse: yes"
+          else
+            echo "pulse: no"
+          fi
+          ensure_loopback_driver

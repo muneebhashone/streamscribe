@@ -165,6 +165,118 @@ MSG
   fi
 }
 
+current_os() {
+  case "$(uname -s 2>/dev/null)" in
+    Darwin) printf 'macos' ;;
+    Linux) printf 'linux' ;;
+    *) printf 'other' ;;
+  esac
+}
+
+ffmpeg_has_avfoundation_blackhole() {
+  if ! have ffmpeg; then return 1; fi
+  ffmpeg -hide_banner -f avfoundation -list_devices true -i "" 2>&1 | grep -E -i 'BlackHole|Loopback Audio|Soundflower|Multi-Output Device' >/dev/null 2>&1
+}
+
+install_blackhole_macos() {
+  if ! have brew; then
+    cat >&2 <<'MSG'
+Homebrew was not found, so BlackHole can't be installed automatically.
+Install Homebrew first: https://brew.sh
+Or install BlackHole manually: https://existential.audio/blackhole/
+MSG
+    return 1
+  fi
+  echo "Installing BlackHole 2ch via Homebrew (you may be prompted for your password)..."
+  brew install blackhole-2ch
+}
+
+ensure_macos_loopback() {
+  echo "Checking for a macOS system-audio loopback driver..."
+  if ffmpeg_has_avfoundation_blackhole; then
+    echo "Found a loopback driver (BlackHole / Loopback Audio / Soundflower / Multi-Output Device)."
+    return 0
+  fi
+  echo ""
+  echo "No macOS loopback driver detected."
+  echo "StreamScribe needs one to capture system audio (any app)."
+  echo "Recommended: BlackHole 2ch (free, open source)."
+  if [ -r /dev/tty ]; then
+    printf 'Install BlackHole 2ch now via Homebrew? [Y/n]: ' >/dev/tty
+    IFS= read -r reply </dev/tty || reply=""
+  else
+    reply=""
+  fi
+  case "$reply" in
+    n|N|no|NO|No)
+      cat <<'MSG'
+Skipped. Install one manually before using live mode:
+  https://existential.audio/blackhole/ (free)
+  https://rogueamoeba.com/loopback/    (paid)
+After installing, create a Multi-Output Device in Audio MIDI Setup so you
+can both hear audio and have streamscribe capture it.
+MSG
+      ;;
+    *)
+      install_blackhole_macos || true
+      cat <<'MSG'
+
+Next step: open Audio MIDI Setup and create a Multi-Output Device that
+includes BOTH your headset/speakers AND BlackHole 2ch. Then set that
+Multi-Output Device as the macOS System Output. See:
+  https://github.com/ExistentialAudio/BlackHole/wiki/Multi-Output-Device
+MSG
+      ;;
+  esac
+}
+
+pulse_is_running() {
+  # PulseAudio (or PipeWire-Pulse) responds to pactl info if a server is up.
+  if have pactl; then
+    pactl info >/dev/null 2>&1 && return 0
+  fi
+  if have pulseaudio; then
+    pulseaudio --check >/dev/null 2>&1 && return 0
+  fi
+  # ffmpeg -sources pulse fails when no pulse server is reachable.
+  if have ffmpeg; then
+    ffmpeg -hide_banner -sources pulse 2>&1 | grep -E -i 'Auto-detected sources for pulse' >/dev/null 2>&1 && return 0
+  fi
+  return 1
+}
+
+ensure_linux_loopback() {
+  echo "Checking for PulseAudio (or PipeWire-Pulse) on Linux..."
+  if pulse_is_running; then
+    echo "PulseAudio server is reachable. Monitor sources will be used for loopback."
+    return 0
+  fi
+  cat >&2 <<'MSG'
+
+No reachable PulseAudio server detected.
+Linux uses PulseAudio monitor sources for system-audio loopback. Install
+PulseAudio (or PipeWire with the Pulse compatibility layer) and make sure
+it is running, then re-run streamscribe.
+
+Ubuntu/Debian:
+  sudo apt-get install -y pulseaudio   # or: sudo apt-get install -y pipewire-pulse
+Fedora:
+  sudo dnf install -y pulseaudio       # or: sudo dnf install -y pipewire-pulseaudio
+Arch:
+  sudo pacman -Sy --noconfirm pulseaudio
+
+After installing, log out and back in (or run `systemctl --user start pulseaudio`).
+MSG
+}
+
+ensure_loopback_driver() {
+  case "$(current_os)" in
+    macos) ensure_macos_loopback ;;
+    linux) ensure_linux_loopback ;;
+    *) ;;
+  esac
+}
+
 profile_for_shell() {
   case "${SHELL:-}" in
     */zsh) printf '%s\n' "$HOME/.zshrc" ;;
@@ -220,6 +332,7 @@ fi
 
 ensure_bun
 ensure_media_tools
+ensure_loopback_driver
 ensure_deepgram_key
 
 if [ "$FORCE_MODE" -eq 1 ]; then

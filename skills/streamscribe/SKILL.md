@@ -1,13 +1,13 @@
 ---
 name: streamscribe
-description: Use when a user or agent needs to install, configure, troubleshoot, or operate the streamscribe CLI for Deepgram live transcription or stereo WAV recording from a system playback source (any app) and a microphone on Windows.
+description: Use when a user or agent needs to install, configure, troubleshoot, or operate the streamscribe CLI for Deepgram live transcription or stereo WAV recording from a system playback source (any app) and a microphone on Windows, macOS, or Linux (Ubuntu).
 version: 1.0.0
 author: Muneeb Hashone
 license: MIT
-platforms: [windows]
+platforms: [windows, macos, linux]
 metadata:
   hermes:
-    tags: [audio, transcription, deepgram, ffmpeg, bun, windows, screen-capture-recorder, vb-cable]
+    tags: [audio, transcription, deepgram, ffmpeg, bun, windows, macos, linux, screen-capture-recorder, vb-cable, blackhole, pulseaudio]
     related_skills: [audio-capture-recording-apps, windows-audio-capture]
 ---
 
@@ -15,18 +15,18 @@ metadata:
 
 ## Overview
 
-`streamscribe` is a Bun + TypeScript terminal app for Windows audio workflows that keep system playback (any app — Chrome, Zoom, Spotify, a game) and a physical microphone on separate channels. It can:
+`streamscribe` is a Bun + TypeScript terminal app that keeps system playback (any app — Chrome, Zoom, Spotify, a game) and a physical microphone on separate channels. It runs on Windows, macOS, and Linux (Ubuntu and other PulseAudio/PipeWire distros). It can:
 
 - stream a playback loopback source and a microphone to separate Deepgram live STT websockets and print final transcript lines in the terminal
 - save a stereo WAV recording with playback on the left channel and microphone on the right channel
-- monitor playback back to the user's headphones through FFplay when the loopback source is an exclusive sink (VB-CABLE) — and skip the monitor automatically when the loopback source is a parallel tap (virtual-audio-capturer, Stereo Mix) so the user keeps hearing audio natively
-- run an interactive picker that lists actual capture devices on the machine and saves the selection to user config
+- auto-decide whether to spawn an FFplay monitor: skipped for parallel taps where the user already hears audio natively (`virtual-audio-capturer`, `Stereo Mix`, PulseAudio `*.monitor` sources); enabled for exclusive sinks where the routed app no longer plays through the system output (`CABLE Output` on Windows, `BlackHole`/`Multi-Output Device` on macOS)
+- run an interactive picker that lists actual capture devices on the current OS (DirectShow on Windows, AVFoundation on macOS, PulseAudio sources on Linux) and saves the selection to user config
 
 Use this skill for both human-facing setup and AI-agent operation. Do not invent device names: the picker enumerates and persists them automatically.
 
 ## Installation
 
-Human shell install:
+macOS and Linux shell install:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/muneebhashone/streamscribe/main/install.sh | sh
@@ -76,15 +76,19 @@ STREAMSCRIBE_VERSION=1 curl -fsSL <url> | sh
 STREAMSCRIBE_FORCE=1   curl -fsSL <url> | sh
 ```
 
-The Windows installer also probes for a playback capture driver (`virtual-audio-capturer`, `CABLE Output`, `Stereo Mix`, `VoiceMeeter`) after the FFmpeg step. If none is found, it asks `[Y/n]` and installs `screen-capture-recorder` from its latest GitHub release with a UAC prompt and interactive click-through. macOS/Linux installers skip this step (DirectShow is Windows-only).
+Each installer probes for a system-audio loopback source after the FFmpeg step:
+
+- **Windows (`install.ps1`)** — looks for `virtual-audio-capturer`, `CABLE Output`, `Stereo Mix`, or `VoiceMeeter`. If none is found, asks `[Y/n]` and installs `screen-capture-recorder` from its latest GitHub release with a UAC prompt.
+- **macOS (`install.sh`)** — looks for `BlackHole`, `Loopback Audio`, `Soundflower`, or a `Multi-Output Device` in AVFoundation. If none is found, asks `[Y/n]` and runs `brew install blackhole-2ch`, then explains how to create a Multi-Output Device so the user can both capture and hear audio.
+- **Linux (`install.sh`)** — checks for a reachable PulseAudio server via `pactl info`, `pulseaudio --check`, or `ffmpeg -sources pulse`. PulseAudio's monitor sources provide loopback natively, so no extra driver is needed. If the server is missing, the installer prints `apt-get`/`dnf`/`pacman` commands to install `pulseaudio` or `pipewire-pulse`.
 
 ## Required Environment
 
-- Windows with microphone permission enabled
+- Windows, macOS, or Linux (Ubuntu/Debian/Fedora/Arch/etc.) with microphone permission enabled
 - Bun 1.3+
 - FFmpeg and FFplay on PATH
 - Deepgram API key in `DEEPGRAM_API_KEY` for live transcription
-- A playback-capture driver. **Recommended:** screen-capture-recorder (exposes `virtual-audio-capturer`). **Alternative:** VB-CABLE. The Windows one-line installer offers to install screen-capture-recorder automatically when none is detected.
+- A system-audio loopback source — see [Playback capture per platform](#playback-capture-per-platform)
 
 Set the API key in the current shell or a `.env` file in the working directory:
 
@@ -92,15 +96,37 @@ Set the API key in the current shell or a `.env` file in the working directory:
 export DEEPGRAM_API_KEY="your_deepgram_key_here"
 ```
 
-## Playback Capture Drivers
+## Playback capture per platform
 
-Pick one (the picker offers whichever is installed):
+The picker offers whichever sources are detected on the current OS. The CLI picks the right FFmpeg input backend automatically (`dshow` on Windows, `avfoundation` on macOS, `pulse` on Linux).
 
-- **screen-capture-recorder** — `https://github.com/rdp/screen-capture-recorder-to-video-windows-free`
-  Adds the `virtual-audio-capturer` DirectShow device. It is a parallel tap on the default render endpoint: it captures whatever any app is playing through your default output, AND you keep hearing audio normally. No per-app routing, no FFplay monitor needed. This is the recommended driver.
+### Windows (DirectShow)
+
+- **screen-capture-recorder (recommended)** — `https://github.com/rdp/screen-capture-recorder-to-video-windows-free`
+  Adds the `virtual-audio-capturer` DirectShow device. Parallel tap on the default render endpoint: captures whatever any app is playing AND you keep hearing audio normally. No per-app routing, no FFplay monitor needed.
 - **VB-CABLE** — `https://vb-audio.com/Cable/`
-  A virtual sink. Requires per-app routing in Windows Settings → Sound → App volume & device preferences (set each app you want captured to `CABLE Input`). Because the routed app no longer plays to your headset, FFplay monitor must run; the auto monitor logic enables it for you when a `CABLE Output` device is configured.
-- **Stereo Mix** — built into some sound cards. Enable it in Sound Control Panel → Recording → right-click → Show Disabled Devices → Enable.
+  A virtual sink. Requires per-app routing in Windows Settings → Sound → App volume & device preferences (set each app you want captured to `CABLE Input`). FFplay monitor is enabled automatically for `CABLE Output`.
+- **Stereo Mix** — built into some sound cards. Enable in Sound Control Panel → Recording → right-click → Show Disabled Devices → Enable.
+
+### macOS (AVFoundation)
+
+macOS has no built-in system-audio loopback. Install one virtual driver:
+
+- **BlackHole 2ch (recommended)** — free, open source: `brew install blackhole-2ch` (the installer offers this automatically). Manual install: `https://existential.audio/blackhole/`. Open Audio MIDI Setup and create a Multi-Output Device that includes your speakers/headset AND BlackHole 2ch; set it as the System Output so you both hear audio AND streamscribe can capture it.
+- **Loopback by Rogue Amoeba** — paid, polished routing UI: `https://rogueamoeba.com/loopback/`.
+- **Soundflower** — legacy, deprecated; only use if already installed.
+
+The auto monitor is enabled for BlackHole / Loopback Audio / Multi-Output Device, so FFplay plays the captured stream back to the system output.
+
+### Linux (PulseAudio / PipeWire)
+
+PulseAudio provides system-audio loopback for free via `*.monitor` sources. The CLI uses `ffmpeg -f pulse -i <monitor-source>` directly. No third-party driver is needed.
+
+- Ubuntu 22.04+ uses PipeWire by default; install `pipewire-pulse` for PulseAudio API compatibility: `sudo apt-get install -y pipewire-pulse`.
+- Older Ubuntu/Debian/Fedora/Arch: install `pulseaudio` via the system package manager.
+- Verify with `pactl list sources short | grep monitor` — you should see one entry per output device (e.g. `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`).
+
+The auto monitor is off for PulseAudio because monitor sources are parallel taps — you already hear audio natively.
 
 ## First-Run Flow
 
@@ -143,16 +169,19 @@ If no loopback driver is detected at all, the CLI prints install URLs for screen
 2. `MIC_AUDIO_CAPTURE_CONFIG` environment variable (legacy)
 3. `AUDIO_RECORDER_CONFIG` environment variable (legacy)
 4. `recorder.config.json` in the current working directory
-5. user config at `%USERPROFILE%\.config\streamscribe\recorder.config.json`
+5. user config at `~/.config/streamscribe/recorder.config.json` (or `%USERPROFILE%\.config\streamscribe\recorder.config.json` on Windows)
 6. package example config
 
-The picker writes back to the same config path that was loaded. If a `recorder.config.json` exists in the working directory, that file is updated (useful for dev). Otherwise the user config at `%USERPROFILE%\.config\streamscribe\recorder.config.json` is written. When `--pick` overwrites a config that was hand-edited (differs from the example), the old file is copied to `recorder.config.json.bak.<timestamp>` first. The picker always resets `monitor.enabled` to `"auto"` so the heuristic decides correctly for the new source.
+The picker writes back to the same config path that was loaded. If a `recorder.config.json` exists in the working directory, that file is updated (useful for dev). Otherwise the user config at `~/.config/streamscribe/recorder.config.json` is written. When `--pick` overwrites a config that was hand-edited (differs from the example), the old file is copied to `recorder.config.json.bak.<timestamp>` first. The picker always resets `monitor.enabled` to `"auto"` so the heuristic decides correctly for the new source.
 
 ## Config Schema (Notable Fields)
 
+- `browser.backend` and `mic.backend` — FFmpeg input backend. The picker writes this automatically based on the current OS: `dshow` on Windows, `avfoundation` on macOS, `pulse` on Linux. Legacy `wasapi`/`wasapi-loopback` are still accepted on Windows.
 - `browser.device` — playback source device name (the JSON key is `browser` for backward compat; it's actually "any app's playback")
 - `mic.device` — microphone device name
-- `monitor.enabled` — `"auto"` | `true` | `false`. `"auto"` is the new default: monitor is on for VB-CABLE (exclusive sink), off for `virtual-audio-capturer` and Stereo Mix (parallel taps), off for `wasapi-loopback` backend.
+- `monitor.enabled` — `"auto"` | `true` | `false`. `"auto"` is the default:
+  - **on** for exclusive sinks where the app no longer plays through the system output: VB-CABLE (`CABLE Output`), BlackHole, Multi-Output Device, Loopback Audio.
+  - **off** for parallel taps where audio is still audible natively: `virtual-audio-capturer`, Stereo Mix, PulseAudio `*.monitor` sources, `wasapi-loopback`, and any `pulse` backend.
 - `deepgram.apiKeyEnv` — env var that holds the Deepgram API key (default `DEEPGRAM_API_KEY`)
 
 ## Agent Operation Pattern
@@ -188,25 +217,35 @@ Recordings are written to `recordings/recording-YYYY-MM-DD_HH-mm-ss.wav` under t
 
 1. **No audio captured / no transcripts.** The configured loopback device may not exist on the machine. Re-run with `--pick` to reselect from the live list.
 
-2. **Hearing audio twice while VB-CABLE is selected.** That's the monitor working as intended — the routed app's audio is reaching VB-CABLE only, and FFplay is playing the CABLE Output back to your headset. To stop hearing it twice, choose `virtual-audio-capturer` instead (parallel tap, no monitor needed).
+2. **Hearing audio twice while an exclusive sink is selected.** That's the monitor working as intended — the routed app's audio is reaching the virtual sink only, and FFplay is playing it back to your default output. To stop hearing it twice, switch to a parallel tap (`virtual-audio-capturer` on Windows, a PulseAudio `.monitor` source on Linux). On macOS, a `Multi-Output Device` that includes both BlackHole and your speakers is the equivalent parallel-tap setup.
 
-3. **No loopback driver detected.** The CLI prints screen-capture-recorder + VB-CABLE URLs and exits. Install one (reboot if prompted), then re-run.
+3. **No loopback driver detected.**
+   - **Windows:** install `screen-capture-recorder` (the installer offers it) or VB-CABLE.
+   - **macOS:** the installer offers `brew install blackhole-2ch`. After install, create a Multi-Output Device in Audio MIDI Setup that includes BlackHole 2ch AND your speakers/headset, then set it as the macOS System Output.
+   - **Linux:** install/start PulseAudio or PipeWire-Pulse and verify `pactl list sources short | grep monitor`.
 
-4. **WASAPI examples fail.** Stock FFmpeg builds (gyan.dev, BtbN) do not include the `wasapi` indev. The CLI detects this at runtime and never offers WASAPI in the picker. Use DirectShow-based sources.
+4. **WASAPI examples fail (Windows).** Stock FFmpeg builds (gyan.dev, BtbN) do not include the `wasapi` indev. The CLI detects this at runtime and never offers WASAPI in the picker. Use DirectShow-based sources.
 
-5. **Feedback loops.** Do not play TTS or system audio into the same VB-CABLE endpoint that is being transcribed unless feedback is explicitly desired.
+5. **PulseAudio sources missing on Linux.** If `streamscribe devices` shows nothing under "PulseAudio sources", the pulse server is not reachable from the user shell. Make sure pulse/pipewire-pulse is installed and the user-level service is started; many containers/SSH sessions don't have a pulse server by default.
 
-6. **Headless / non-TTY runs.** If sources aren't configured and stdin is not a TTY, the CLI exits with guidance rather than hanging. Run `streamscribe pick` from an interactive terminal first.
+6. **AVFoundation prompts for microphone permission on macOS.** The first time FFmpeg opens an AVFoundation audio device, macOS asks the user to grant microphone access to the terminal app (Terminal/iTerm/VS Code). Re-run streamscribe after granting permission. Likewise, for `BlackHole 2ch` to capture playback, the System Output must be set to a Multi-Output Device that routes to BlackHole.
+
+7. **Feedback loops.** Do not play TTS or system audio into the same exclusive sink (VB-CABLE / BlackHole) that is being transcribed unless feedback is explicitly desired.
+
+8. **Headless / non-TTY runs.** If sources aren't configured and stdin is not a TTY, the CLI exits with guidance rather than hanging. Run `streamscribe pick` from an interactive terminal first.
 
 ## Verification Checklist
 
 - [ ] `streamscribe --version` prints a semver
 - [ ] `streamscribe help` works
-- [ ] `streamscribe devices` lists DirectShow audio devices
+- [ ] `streamscribe devices` lists devices for the current OS (DirectShow on Windows, AVFoundation on macOS, PulseAudio sources on Linux)
 - [ ] `ffmpeg -version` and `ffplay -version` work
 - [ ] `DEEPGRAM_API_KEY` is set for live mode
-- [ ] One loopback driver is installed (virtual-audio-capturer, CABLE Output, or Stereo Mix)
+- [ ] Loopback source is available on the current OS:
+  - Windows: virtual-audio-capturer / CABLE Output / Stereo Mix
+  - macOS: BlackHole 2ch (and Multi-Output Device configured) / Loopback Audio
+  - Linux: PulseAudio reachable and a `*.monitor` source visible via `pactl list sources short`
 - [ ] `streamscribe live` runs the picker on first use and starts transcription
 - [ ] `streamscribe live --pick` re-prompts and backs up the prior config to `recorder.config.json.bak.<timestamp>`
-- [ ] With `virtual-audio-capturer` selected, no FFplay monitor process spawns (`monitor.enabled = "auto"`)
-- [ ] With `CABLE Output (...)` selected, FFplay monitor spawns so the user can hear playback
+- [ ] With a parallel tap selected, no FFplay monitor process spawns (`monitor.enabled = "auto"` → `virtual-audio-capturer`, `*.monitor`, etc.)
+- [ ] With an exclusive sink selected, FFplay monitor spawns so the user can hear playback (`CABLE Output`, `BlackHole`, `Multi-Output Device`)

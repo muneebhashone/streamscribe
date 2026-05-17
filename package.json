@@ -1,7 +1,7 @@
 {
   "name": "@muneebhashone/streamscribe",
   "version": "1.2.0",
-  "description": "Bun + TypeScript CLI for Deepgram live STT and stereo recording from separate Chrome/system and microphone audio sources.",
+  "description": "Cross-platform Bun + TypeScript CLI (Windows, macOS, Linux) for Deepgram live STT and stereo recording from separate system playback and microphone audio sources.",
   "type": "module",
   "bin": {
     "streamscribe": "./src/cli.ts",
@@ -45,7 +45,13 @@
     "stt",
     "transcription",
     "vb-cable",
-    "windows"
+    "blackhole",
+    "pulseaudio",
+    "pipewire",
+    "windows",
+    "macos",
+    "linux",
+    "ubuntu"
   ],
   "engines": {
     "bun": ">=1.3.0"
