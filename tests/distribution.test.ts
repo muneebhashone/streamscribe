@@ -136,6 +136,35 @@ describe('Bun package distribution', () => {
     expect(ps1).toContain('Install screen-capture-recorder now?');
   });
 
+  test('macOS path in install.sh offers BlackHole via Homebrew', () => {
+    const sh = readText('install.sh');
+
+    expect(sh).toContain('ensure_macos_loopback');
+    expect(sh).toContain('ffmpeg_has_avfoundation_blackhole');
+    expect(sh).toContain('install_blackhole_macos');
+    expect(sh).toContain('brew install blackhole-2ch');
+    expect(sh).toContain('Multi-Output Device');
+    expect(sh).toContain('existential.audio/blackhole');
+  });
+
+  test('Linux path in install.sh probes for a reachable PulseAudio server', () => {
+    const sh = readText('install.sh');
+
+    expect(sh).toContain('ensure_linux_loopback');
+    expect(sh).toContain('pulse_is_running');
+    expect(sh).toContain('pactl info');
+    expect(sh).toContain('pulseaudio --check');
+    expect(sh).toContain('pipewire-pulse');
+  });
+
+  test('install.sh dispatches loopback driver checks by OS', () => {
+    const sh = readText('install.sh');
+
+    expect(sh).toContain('current_os');
+    expect(sh).toContain('ensure_loopback_driver');
+    expect(sh).toContain('ensure_loopback_driver');
+  });
+
   test('example config ships separately from local user config', () => {
     expect(existsSync(join(root, 'recorder.config.example.json'))).toBe(true);
     const example = readJson('recorder.config.example.json');

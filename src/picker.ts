@@ -5,12 +5,17 @@ export type PickerResult =
   | { ok: true; playback: DiscoveredDevice; mic: DiscoveredDevice }
   | { ok: false; reason: 'cancelled' | 'no-playback' | 'no-mic' | 'no-tty' };
 
-const RECOMMENDED_PLAYBACK = /virtual-audio-capturer/i;
+const RECOMMENDED_PLAYBACK = /virtual-audio-capturer|BlackHole|\.monitor$|Monitor of /i;
 const PLAYBACK_NOTES: Array<{ pattern: RegExp; note: string }> = [
   { pattern: /virtual-audio-capturer/i, note: 'recommended — captures any app' },
   { pattern: /CABLE Output/i, note: 'requires per-app routing in Windows' },
   { pattern: /Stereo Mix/i, note: 'built-in loopback (if enabled in Sound settings)' },
   { pattern: /VoiceMeeter Out/i, note: 'VoiceMeeter virtual output' },
+  { pattern: /BlackHole/i, note: 'macOS virtual audio driver — needs Multi-Output Device to also hear audio' },
+  { pattern: /Loopback Audio/i, note: 'Rogue Amoeba Loopback virtual device' },
+  { pattern: /Soundflower/i, note: 'legacy macOS loopback (Soundflower)' },
+  { pattern: /Multi-Output Device/i, note: 'macOS Multi-Output Device (Audio MIDI Setup)' },
+  { pattern: /\.monitor$|Monitor of /i, note: 'PulseAudio monitor — native loopback, no extra driver needed' },
 ];
 
 function noteFor(name: string): string | null {
